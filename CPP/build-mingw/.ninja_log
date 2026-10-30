@@ -1,0 +1,8 @@
+# ninja log v6
+10	237	8151010821817712	MusiKCpp_autogen/timestamp	f04d67172cd12ee3
+10	237	8151010821817712	MusiKCpp_autogen/mocs_compilation.cpp	f04d67172cd12ee3
+10	237	8151010821817712	C:/Users/shsis/OneDrive/Code/MusiK-CPP/build-mingw/MusiKCpp_autogen/timestamp	f04d67172cd12ee3
+10	237	8151010821817712	C:/Users/shsis/OneDrive/Code/MusiK-CPP/build-mingw/MusiKCpp_autogen/mocs_compilation.cpp	f04d67172cd12ee3
+242	297	8151010822327718	CMakeFiles/MusiKCpp.dir/MusiKCpp_autogen/mocs_compilation.cpp.obj	3f10c7a0de10ca25
+247	8594	8151010822387702	CMakeFiles/MusiKCpp.dir/src/main.cpp.obj	a059adaf82051c41
+8599	8860	8151010905895832	MusiKCpp.exe	b084897074049bda

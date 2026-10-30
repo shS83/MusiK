@@ -743,6 +743,29 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(prefix + EFFECTS[effect] + " · F11: fullscreen · Esc: back / close")
 
     def closeEvent(self, event):
+        self.player.stop()
+
+        if self.visualizer:
+            self.visualizer.close()
+
+        if self.folder_scanner is not None:
+            self.closing = True
+            self.folder_scanner.requestInterruption()
+            self.hide()
+            event.ignore()
+            return
+
+        try:
+            self.autosave_playlist()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self,
+                "Playlist autosave failed",
+                str(exc)
+            )
+
+        super().closeEvent(event)
+
         self.set_party_mode(False)
         self.playlist.cancel_hover()
         if self.metadata_dialog is not None:
@@ -757,29 +780,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
 
-        def closeEvent(self, event):
-            self.player.stop()
 
-            if self.visualizer:
-                self.visualizer.close()
-
-            if self.folder_scanner is not None:
-                self.closing = True
-                self.folder_scanner.requestInterruption()
-                self.hide()
-                event.ignore()
-                return
-
-            try:
-                self.autosave_playlist()
-            except (OSError, ValueError) as exc:
-                QMessageBox.warning(
-                    self,
-                    "Playlist autosave failed",
-                    str(exc)
-                )
-
-            super().closeEvent(event)
 
 
 def main():

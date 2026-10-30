@@ -1,4 +1,5 @@
 import os
+import random
 from pathlib import Path
 import sys
 
@@ -6,20 +7,22 @@ import sys
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
 
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, QTimer, QUrl
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen, QShortcut, QSurfaceFormat
+from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, QSize, QStandardPaths
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QShortcut, QSurfaceFormat
 from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QAbstractItemView, QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
     QSlider, QStyle, QVBoxLayout, QWidget,
 )
-
 from .audio import AudioAnalysis
 from .library import AUDIO_FILE_FILTER, FolderScanner
 from .playlist import load_playlist, save_playlist
 from .visualizer import Visualizer
-
+from .effects import EffectVisualizer
+from .folders import choose_folders
+from .settings import SettingsDialog, THEMES, default_store, load_settings
+import ctypes
 
 STYLE = """
 QMainWindow { background: #24132c; }
@@ -61,6 +64,9 @@ class Oscilloscope(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(115)
+        self.scope_points = 512
+        self.accent = "#ffc3a3"
+        self.scope_background = "#20152e"
         self.spectrum_mode = False
         self.spectrum = np.zeros(48)
         self.spectrum_max = 20000.0
@@ -95,7 +101,7 @@ class Oscilloscope(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#20152e"))
+        painter.fillRect(self.rect(), QColor(self.scope_background))
         painter.setPen(QPen(QColor(255, 220, 240, 14), 1))
         for x in range(0, self.width(), 36):
             painter.drawLine(x, 0, x, self.height())
@@ -111,7 +117,7 @@ class Oscilloscope(QWidget):
             for i, level in enumerate(self.spectrum):
                 height = float(np.clip(level, 0, 1)) * max(1, bottom - top)
                 painter.fillRect(QRectF(left + i * step, bottom - height,
-                                        max(1, step - 2), height), QColor("#ffc3a3"))
+                                        max(1, step - 2), height), QColor(self.accent))
             painter.setPen(QColor("#e4c7d6"))
             for frequency in (30, 100, 1000, 10000):
                 if frequency >= self.spectrum_max:
@@ -122,23 +128,28 @@ class Oscilloscope(QWidget):
             painter.drawText(self.width() - 62, 16, "−72–0 dB")
             painter.end()
             return
-        count = min(len(self.samples), max(2, self.width()))
+        count = min(len(self.samples), self.scope_points, max(2, round(self.width() * self.devicePixelRatioF())))
         points = self.samples[np.linspace(0, len(self.samples) - 1, count).astype(int)]
         path = QPainterPath()
         for i, sample in enumerate(points):
             x = i * self.width() / max(1, count - 1)
             y = self.height() / 2 - float(np.clip(sample, -1, 1)) * self.height() * 0.43
             path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
-        painter.setPen(QPen(QColor(242, 154, 197, 40), 7))
+        glow = QColor(self.accent)
+        glow.setAlpha(40)
+        painter.setPen(QPen(glow, 7))
         painter.drawPath(path)
-        painter.setPen(QPen(QColor("#ffc3a3"), 1.6))
+        painter.setPen(QPen(QColor(self.accent), 1.6))
         painter.drawPath(path)
         painter.end()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, settings_store=None):
         super().__init__()
+        self.settings_store = settings_store if settings_store is not None else default_store()
+        self.preferences = load_settings(self.settings_store)
+        self.import_counter = 0
         self.setWindowTitle("MusiK")
         self.resize(900, 820)
         self.setMinimumSize(720, 670)
@@ -158,6 +169,7 @@ class MainWindow(QMainWindow):
         self.build_ui()
         self.analysis.waveform.connect(self.scope.set_samples)
         self.analysis.spectrum.connect(self.scope.set_spectrum)
+        self.apply_settings(self.preferences, persist=False)
         self.player.positionChanged.connect(self.position_changed)
         self.player.durationChanged.connect(self.duration_changed)
         self.player.seekableChanged.connect(self.update_controls)
@@ -173,6 +185,60 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Add your music to begin · Space: play / pause · Ctrl+O: add files")
         self.update_controls()
 
+    def autosave_playlist(self):
+        """Save current playlist before application exits."""
+
+        directory = Path(
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.AppDataLocation
+            )
+        )
+
+        filename = directory / "autosave.m3u8"
+
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+
+            tracks = [
+                self.playlist.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(self.playlist.count())
+            ]
+
+            save_playlist(str(filename), tracks)
+
+            print(f"[MusiK] Autosaved {len(tracks)} tracks to {filename}")
+
+        except (OSError, ValueError) as exc:
+            print(f"[MusiK] Autosave failed: {exc}")
+
+    def autoload_playlist(self):
+        """Restore playlist from previous session."""
+
+        directory = Path(
+            QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.AppDataLocation
+            )
+        )
+
+        filename = directory / "autosave.m3u8"
+
+        if not filename.is_file():
+            print("[MusiK] No previous playlist found")
+            return
+
+        try:
+            tracks, missing = load_playlist(str(filename))
+
+            self.add_paths(tracks, report_missing=False)
+
+            print(f"[MusiK] Restored {len(tracks)} tracks from {filename}")
+
+            if missing:
+                print(f"[MusiK] {len(missing)} missing files skipped")
+
+        except (OSError, UnicodeError, ValueError) as exc:
+            print(f"[MusiK] Autoload failed: {exc}")
+
     def build_ui(self):
         canvas = QWidget(objectName="canvas")
         self.setCentralWidget(canvas)
@@ -186,6 +252,9 @@ class MainWindow(QMainWindow):
         title.addWidget(QLabel("SOUND INTO COLOUR", objectName="eyebrow"))
         header.addLayout(title)
         header.addStretch()
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.clicked.connect(self.show_settings)
+        header.addWidget(self.settings_button)
         self.visualize_button = QPushButton("✦  Visualization", objectName="visualize")
         self.visualize_button.clicked.connect(self.show_visualizer)
         header.addWidget(self.visualize_button)
@@ -256,21 +325,101 @@ class MainWindow(QMainWindow):
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         box.addWidget(self.empty_label)
         row = QHBoxLayout()
-        for text, callback in (("+  Add files", self.add_files), ("Add folder", self.add_folder),
+        for text, callback in (("+  Add files", self.add_files), ("Add folders", self.add_folder),
                                ("−  Remove files", self.remove_files),
                                ("Load playlist", self.load), ("Save playlist", self.save)):
             button = QPushButton(text)
             button.clicked.connect(callback)
             row.addWidget(button)
-            if text == "Add folder":
+            if text == "Add folders":
                 self.add_folder_button = button
-                button.setToolTip("Add audio files from a folder and its subfolders")
+                button.setToolTip("Select several folders, including their subfolders")
             if text.startswith("−"):
                 self.remove_button = button
             if text.startswith("Save"):
                 self.save_button = button
         box.addLayout(row)
         layout.addWidget(playlist_panel, 1)
+
+    def show_settings(self):
+        dialog = SettingsDialog(self.preferences, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.apply_settings(dialog.values())
+
+    def apply_settings(self, values, persist=True):
+        old = self.preferences
+        self.preferences = dict(values)
+        self.scope.scope_points = values["scope_points"]
+        self.analysis.set_spectrum_bands(values["spectrum_bands"])
+        colors = THEMES[values["theme"]][1]
+        style = STYLE
+        for before, after in zip(("#381754", "#632b60", "#cf713e", "#f7ac81", "#f7ae89", "#f4ad88", "#9a5de0", "#ef9a65"),
+                                 (*colors[:3], colors[3], colors[3], colors[3], colors[1], colors[2])):
+            style = style.replace(before, after)
+        for before, after in (("#24132c", QColor(colors[0]).darker(130).name()),
+                              ("#25162e", QColor(colors[0]).darker(140).name()),
+                              ("#7d436f", colors[1]), ("#38213e", colors[0]),
+                              ("#8e5e91", colors[2])):
+            style = style.replace(before, after)
+        style += "QDialog { background: " + colors[0] + "; } QComboBox, QSpinBox { background: #201b29; color: white; padding: 6px; }"
+        self.setStyleSheet(style)
+        self.scope.accent = colors[3]
+        self.scope.scope_background = QColor(colors[0]).darker(160).name()
+        self.scope.update()
+        self.sort_playlist(restore_manual=old["order"] != values["order"])
+        if old["effect"] != values["effect"] and self.visualizer is not None:
+            visible = self.visualizer.isVisible()
+            fullscreen = self.visualizer.isFullScreen()
+            self.dispose_visualizer()
+            if visible:
+                self.show_visualizer()
+                if fullscreen:
+                    self.visualizer.showFullScreen()
+        if persist:
+            for key, value in values.items():
+                self.settings_store.setValue(key, value)
+            self.settings_store.sync()
+
+    def sort_playlist(self, restore_manual=False):
+        order = self.preferences["order"]
+        self.playlist.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove if order == 0
+                                      else QAbstractItemView.DragDropMode.NoDragDrop)
+        if not order and not restore_manual:
+            return
+        current = self.playlist.currentItem()
+        selected = self.playlist.selectedItems()
+        items = [self.playlist.item(i) for i in range(self.playlist.count())]
+        keys = {
+            0: lambda item: item.data(Qt.ItemDataRole.UserRole + 1),
+            1: lambda item: (item.text().casefold(), item.data(Qt.ItemDataRole.UserRole).casefold()),
+            2: lambda item: (item.text().casefold(), item.data(Qt.ItemDataRole.UserRole).casefold()),
+            3: lambda item: item.data(Qt.ItemDataRole.UserRole).casefold(),
+            4: lambda item: item.data(Qt.ItemDataRole.UserRole + 2),
+        }
+        items.sort(key=keys[order], reverse=order == 2)
+        self.playlist.blockSignals(True)
+        try:
+            while self.playlist.count():
+                self.playlist.takeItem(0)
+            for item in items:
+                self.playlist.addItem(item)
+            if current is not None:
+                self.playlist.setCurrentItem(current)
+            self.playlist.clearSelection()
+            for item in selected:
+                item.setSelected(True)
+        finally:
+            self.playlist.blockSignals(False)
+
+    def dispose_visualizer(self):
+        visual = self.visualizer
+        self.analysis.beat.disconnect(visual.on_beat)
+        self.analysis.bands.disconnect(visual.on_bands)
+        if isinstance(visual, EffectVisualizer):
+            self.analysis.energy.disconnect(visual.on_energy)
+        visual.close()
+        visual.deleteLater()
+        self.visualizer = None
 
     def transport_button(self, text, icon, callback):
         button = QPushButton(self.style().standardIcon(icon), text)
@@ -288,8 +437,12 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(path.stem)
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip(str(path))
+            item.setData(Qt.ItemDataRole.UserRole + 1, self.import_counter)
+            item.setData(Qt.ItemDataRole.UserRole + 2, random.random())
+            self.import_counter += 1
             self.playlist.addItem(item)
             added += 1
+        self.sort_playlist()
         if self.playlist.currentRow() < 0 and self.playlist.count():
             self.playlist.setCurrentRow(0)
         self.update_controls()
@@ -306,12 +459,12 @@ class MainWindow(QMainWindow):
             self.folder_scanner.requestInterruption()
             self.add_folder_button.setEnabled(False)
             return
-        folder = QFileDialog.getExistingDirectory(self, "Add music folder (including subfolders)")
-        if not folder:
+        folders = choose_folders(self)
+        if not folders:
             return
         self.folder_added = 0
         self.folder_errors = 0
-        self.folder_scanner = FolderScanner(folder, self)
+        self.folder_scanner = FolderScanner(folders, self)
         self.folder_scanner.files_found.connect(self.folder_files_found)
         self.folder_scanner.scan_error.connect(self.folder_scan_error)
         self.folder_scanner.finished.connect(self.folder_scan_finished)
@@ -332,7 +485,7 @@ class MainWindow(QMainWindow):
         cancelled = self.folder_scanner.isInterruptionRequested()
         self.folder_scanner.deleteLater()
         self.folder_scanner = None
-        self.add_folder_button.setText("Add folder")
+        self.add_folder_button.setText("Add folders")
         self.add_folder_button.setEnabled(True)
         result = "Scan cancelled" if cancelled else "Folder scan complete"
         detail = f" · {self.folder_errors} unreadable folders/files skipped" if self.folder_errors else ""
@@ -490,14 +643,17 @@ class MainWindow(QMainWindow):
 
     def show_visualizer(self):
         if self.visualizer is None:
-            self.visualizer = Visualizer(self)
+            effect = self.preferences["effect"]
+            self.visualizer = Visualizer(self) if effect == 0 else EffectVisualizer(effect, self)
+            if effect:
+                self.analysis.energy.connect(self.visualizer.on_energy)
             self.analysis.beat.connect(self.visualizer.on_beat)
             self.analysis.bands.connect(self.visualizer.on_bands)
             self.visualizer.failed.connect(lambda message: self.statusBar().showMessage(message))
         self.visualizer.show()
         self.visualizer.raise_()
         self.visualizer.activateWindow()
-        self.statusBar().showMessage("Visualization · F11: fullscreen · Esc: back / close · ↑↓: fog · ←→: speed · R: reset")
+        self.statusBar().showMessage("Visualization · F11: fullscreen · Esc: back / close · Matrixia: click to change colour")
 
     def closeEvent(self, event):
         self.player.stop()
@@ -509,7 +665,30 @@ class MainWindow(QMainWindow):
             self.hide()
             event.ignore()
             return
-        super().closeEvent(event)
+
+        def closeEvent(self, event):
+            self.player.stop()
+
+            if self.visualizer:
+                self.visualizer.close()
+
+            if self.folder_scanner is not None:
+                self.closing = True
+                self.folder_scanner.requestInterruption()
+                self.hide()
+                event.ignore()
+                return
+
+            try:
+                self.autosave_playlist()
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(
+                    self,
+                    "Playlist autosave failed",
+                    str(exc)
+                )
+
+            super().closeEvent(event)
 
 
 def main():
@@ -518,10 +697,34 @@ def main():
     fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
     fmt.setSwapInterval(1)
     QSurfaceFormat.setDefaultFormat(fmt)
+    BASE_DIR = Path(__file__).resolve().parent
+
+    if sys.platform == "win32":
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Prometheus.MusiK.Player.1"
+        )
+
     app = QApplication(sys.argv)
+
+    icon = QIcon()
+
+    for size in (16, 24, 32, 48, 64):
+        icon.addFile(
+            str(BASE_DIR.parent / f"MusiK-{size}.ico"),
+            QSize(size, size)
+        )
+
+    icon.addFile(str(BASE_DIR.parent / "MusiK-logo.png"), QSize(256, 256))
+
+    app.setWindowIcon(icon)
+
     app.setApplicationName("MusiK")
     app.setOrganizationName("MusiK")
     window = MainWindow()
+    window.autoload_playlist()
     window.add_paths(sys.argv[1:])
+    app.aboutToQuit.connect(window.autosave_playlist)
     window.show()
+    # Save playlist
+
     sys.exit(app.exec())

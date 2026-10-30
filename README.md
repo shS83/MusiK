@@ -20,9 +20,12 @@ tavallisia muotoja ovat MP3, FLAC, WAV, Ogg, Opus ja M4A.
 
 ## Käyttö
 
-- **+ Add files** lisää kappaleita; kaksoisnapsautus aloittaa toiston.
-- **Add folder** lisää tuetut äänitiedostot valitusta kansiosta ja sen
-  alikansioista aakkosjärjestyksessä. Haku toimii taustalla, joten toistoa voi
+- **+ Add files** lisää useita kerralla valittuja kappaleita (Ctrl/Shift);
+  kaksoisnapsautus soittolistalla aloittaa toiston.
+- **Add folders** avaa usean hakemiston valinnan. Valitse puusta Ctrl/Shiftillä
+  useita kansioita ja paina Open, tai kerää eri sijainneista kansioita
+  **Add selected folders** -painikkeella. Kaikki alikansiot sisällytetään;
+  päällekkäisistä kansiovalinnoista ei lisätä samaa tiedostoa kahdesti. Haku toimii taustalla, joten toistoa voi
   jatkaa. Haun aikana sama painike näyttää **Cancel scan**; keskeyttäminen
   säilyttää jo lisätyt kappaleet. Hakemistolinkkejä ei seurata.
   Kansiohaku ja tiedostovalitsin käyttävät samoja tiedostopäätteitä:
@@ -80,10 +83,50 @@ Sumun kohina ja domain warp -kerrokset on sovitettu projektista
 `/home/shs/Code/Fog/fog.py`. Shaderit ovat tämän projektin `shaders/`-hakemistossa;
 alkuperäistä Fog-projektia ei tarvita käynnistyksessä.
 
+## Settings ja visualisaatiot
+
+**Settings** tallentaa asetukset käyttäjäkohtaisesti (Windowsissa QSettingsin
+MusiK/MusiK-rekisteriasetuksiin). OK ottaa muutokset käyttöön heti; Cancel
+säilyttää entiset asetukset. Asetukset palautuvat käynnistettäessä.
+
+- Oskilloskoopin tiheys: 64–2048 pistettä, käytettävissä olevien ääninäytteiden
+  ja näyttötarkkuuden rajoissa.
+- Spektrin tiheys: 16–128 logaritmista FFT-palkkia. Suuri palkkimäärä ei lisää
+  FFT-ikkunan todellista taajuuserottelua matalilla taajuuksilla.
+- Soittolistan järjestys: tuonti/oma järjestys, nimi A–Z, nimi Z–A,
+  kansio/tiedostonimi tai sekoitettu. Oma järjestys sallii raahaamisen;
+  siihen palaaminen palauttaa tuontijärjestyksen. Sekoitettu järjestys säilyy
+  vakaana tuonnin aikana. Järjestyksen vaihtaminen ei katkaise soivaa kappaletta.
+- 20 pysyvää gradienttiteemaa: alkuperäinen MusiK ja 19 kiinteällä satunnaissiemenellä
+  luotua palettia. Värit pysyvät samoina käynnistyksestä toiseen.
+- Visualisaatio: Chrome sphere, PsyTunnel, Hiss tai Matrixia. Vaihto päivittää
+  myös avoimen visualisaatioikkunan ja säilyttää koko näytön tilan.
+
+**PsyTunnel** käyttää alkuperäisen Psytunnel-projektin tunnelishaderia.
+Äänen energia ja taajuuskaistat kiihdyttävät etenemistä, suvantokohdat hidastavat
+sitä ja voimakkaasta hiljaiseen siirtyminen voi käynnistää lyhyen peruutuksen.
+Bassoisku synnyttää valkoisen, pehmeästi häipyvän välähdyksen.
+
+**Hiss** käyttää alkuperäisen hiss-projektin valkoista kuutiota ja
+kaksivaiheista taittoefektiä ilman HUDia. Musiikki muuttaa pyörimisen ja
+virtauksen nopeutta, vääristymää sekä RGB-hajontaa; hiljaiset kohdat rauhoittavat
+liikettä.
+
+**Matrixia** sovittaa alkuperäisen merkkisateen Qt:lle ilman Pygame-riippuvuutta
+ja toast/HUD-tekstejä. Sateen nopeus seuraa kokonaisenergiaa, bassoiskuja,
+keskiääniä ja ylä-ääniä. Napsautus kiertää seitsemän värin välillä.
+
+Efektit toimitetaan MusiKin mukana, joten alkuperäisten projektien ei tarvitse
+olla asennettuina. Lähteet: sisarprojektit `Psytunnel/tunnel.frag`,
+`hiss/shaders/scene.frag`, `hiss/shaders/hiss.frag` ja `Matrixia/matrixia.py`.
+Niiden MIT-lisenssi on mukana tiedostossa `licenses/effects-MIT.txt`.
+
 ## Tarkistukset
 
 ```bash
-uv run python -m unittest discover -s tests -v
+uv run python -m unittest tests.test_core -v
+# Asetukset, monivalinta ja efektien renderöinti (työpöytäistunto):
+uv run python -m unittest tests.test_settings_effects -v
 # Työpöydällä; luo testiaallon, pitää äänen mykistettynä ja avaa testin ajaksi ikkunat:
 uv run python -m tests.smoke_desktop
 ```

@@ -6,7 +6,7 @@ import wave
 from unittest.mock import patch
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings, QUrl
 from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
@@ -28,7 +28,7 @@ def main():
     fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
     QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication([])
-    window = MainWindow()
+    window = MainWindow(QSettings(str(Path.cwd() / "smoke-settings.ini"), QSettings.Format.IniFormat))
     window.output.setMuted(True)
     errors, beats, buffers = [], [], []
     window.player.errorOccurred.connect(lambda *args: errors.append(args))
@@ -38,7 +38,7 @@ def main():
         paths = []
         for name in ("Bass test", "Next track"):
             path = Path(folder) / (name + ".wav")
-            t = np.arange(48000 * 3) / 48000
+            t = np.arange(48000 * 8) / 48000
             phase = (t - 0.25) % 0.5
             samples = 0.7 * np.sin(2 * np.pi * 70 * t) * np.exp(-phase * 30)
             samples += 0.12 * np.sin(2 * np.pi * 700 * t) + 0.08 * np.sin(2 * np.pi * 6000 * t)
@@ -68,6 +68,14 @@ def main():
             assert min(visual.motion) > 0.1, visual.motion
             visual.grabFramebuffer().save(str(Path(folder) / 'musik-live-scene.png'))
             window.grab().save(str(Path(folder) / 'musik-live-window.png'))
+            # Switch all audio-driven effects while the decoder is playing.
+            for effect in (1, 2, 3, 0):
+                window.apply_settings(dict(window.preferences, effect=effect))
+                QTest.qWait(130)
+                visual = window.visualizer
+                assert visual.isValid() and not visual.error, visual.error
+                if effect:
+                    wait_until(lambda: visual.dynamics.energy > 0.05)
             window.play_button.click()
             QTest.qWait(100)
             assert window.play_button.text() == "Play"
@@ -87,12 +95,14 @@ def main():
             assert window.current_item is window.playlist.item(1)
             window.previous()
             assert window.current_item is window.playlist.item(0)
+            # Wait for the new source to start before seeking near its end.
+            wait_until(lambda: window.player.position() > 100)
             # Automatic next, then natural stop at the end of the list.
             wait_until(lambda: window.player.isSeekable())
-            window.player.setPosition(2800)
+            window.player.setPosition(7800)
             wait_until(lambda: window.current_item is window.playlist.item(1))
             wait_until(lambda: window.player.position() > 50)
-            window.player.setPosition(2800)
+            window.player.setPosition(7800)
             wait_until(lambda: window.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState)
             assert window.play_button.text() == "Play"
             visual.resize(960, 540)
@@ -118,17 +128,19 @@ def main():
                 (album / name).touch()
             (library / "cover.jpg").touch()
             before = window.playlist.count()
-            with patch('musik.app.QFileDialog.getExistingDirectory', return_value=str(library)):
+            with patch('musik.app.choose_folders', return_value=[str(library), str(album)]):
                 window.add_folder_button.click()
             wait_until(lambda: window.folder_scanner is None)
             assert window.playlist.count() == before + 3
-            assert window.add_folder_button.text() == "Add folder"
-            with patch('musik.app.QFileDialog.getExistingDirectory', return_value=''):
+            assert window.add_folder_button.text() == "Add folders"
+            with patch('musik.app.choose_folders', return_value=[]):
                 window.add_folder_button.click()
             assert window.playlist.count() == before + 3
             assert not errors, errors
             print(f'Desktop smoke passed: playback, {len(beats)} bass beats, pause/resume, skip, auto-next/end, removal, folder import, OpenGL, resize, fullscreen, reopen.')
         finally:
+            window.player.stop()
+            window.player.setSource(QUrl())
             window.close()
             app.processEvents()
 

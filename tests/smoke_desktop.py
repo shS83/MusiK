@@ -56,17 +56,23 @@ def main():
             wait_until(lambda: window.player.position() > 600)
             assert window.play_button.text() == "Pause"
             assert beats and max(buffers) > 0.1, (beats, buffers)
+            assert max(window.scope.spectrum) > 0.1
+            QTest.mouseClick(window.scope, Qt.MouseButton.LeftButton)
+            assert window.scope.spectrum_mode
+            QTest.mouseClick(window.scope, Qt.MouseButton.LeftButton)
+            assert not window.scope.spectrum_mode
             window.show_visualizer()
             QTest.qWait(400)
             visual = window.visualizer
             assert visual.isValid() and not visual.error, visual.error
             assert min(visual.motion) > 0.1, visual.motion
-            visual.grabFramebuffer().save('/tmp/musik-live-scene.png')
-            window.grab().save('/tmp/musik-live-window.png')
+            visual.grabFramebuffer().save(str(Path(folder) / 'musik-live-scene.png'))
+            window.grab().save(str(Path(folder) / 'musik-live-window.png'))
             window.play_button.click()
             QTest.qWait(100)
             assert window.play_button.text() == "Play"
             assert visual.motion == [0.0, 0.0]
+            assert max(window.scope.spectrum) == 0
             paused = window.player.position()
             count = len(beats)
             QTest.qWait(150)

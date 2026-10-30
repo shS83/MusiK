@@ -203,6 +203,10 @@ vec3 environment(vec3 origin, vec3 direction) {
     return color;
 }
 
+float spikeHeight() {
+    return 1.35 * log(1.0 + 5.0 * clamp(u_treble, 0.0, 1.0)) / log(6.0);
+}
+
 float sphereField(vec3 q, float radius) {
     // Broad midrange waves remain underneath outward-pointing treble spikes.
     vec3 midPhase = q * vec3(3.8, 4.6, 3.4) + u_time * vec3(3.1, -2.7, 2.3);
@@ -220,9 +224,13 @@ float sphereField(vec3 q, float radius) {
     alignment = max(alignment, (a.x + a.y + a.z) * 0.577350269);
     alignment = max(alignment, max(max(a.x + a.y, a.x + a.z), a.y + a.z) * 0.707106781);
     float tipDistance = sqrt(max(0.0, 2.0 - 2.0 * alignment));
-    float spike = max(0.0, 1.0 - tipDistance / 0.24);
+    // Rounded shoulders meet the sphere with zero slope; a curved taper
+    // pulls the same surface into a tip instead of attaching a straight cone.
+    float width = 0.34 + 0.06 * u_treble;
+    float shoulder = 1.0 - smoothstep(0.0, width, tipDistance);
+    float spike = pow(shoulder, 2.5);
     float displacement = 0.11 * u_mid * midWave.x * midWave.y * midWave.z
-                       + 0.55 * u_treble * spike;
+                       + spikeHeight() * spike;
     return distanceFromCenter - radius - displacement;
 }
 
@@ -250,10 +258,10 @@ void main() {
     }
 
     float radius = 1.0 + u_pulse * 0.20;
-    vec3 center = vec3(0.0, 1.38 + u_pulse * 0.10 + u_treble * 0.30, 0.0);
+    vec3 center = vec3(0.0, 1.38 + u_pulse * 0.10 + spikeHeight() * 0.80, 0.0);
     vec3 oc = eye - center;
     float b = dot(oc, ray);
-    float bound = radius + 0.11 * u_mid + 0.55 * u_treble;
+    float bound = radius + 0.11 * u_mid + spikeHeight();
     float discriminant = b * b - dot(oc, oc) + bound * bound;
     bool sphere = false;
     if (discriminant > 0.0) {
@@ -262,8 +270,8 @@ void main() {
         bool found = false;
         // Only trace pixels inside the bounding sphere; the floor and fog stay cheap.
         // Narrow spike slopes need smaller steps to avoid skipping their surfaces.
-        float stepScale = 1.0 / (1.1 + 0.76 * u_mid + 2.7 * u_treble);
-        for (int i = 0; i < 128; ++i) {
+        float stepScale = 1.0 / (1.1 + 0.76 * u_mid + 5.5 * spikeHeight());
+        for (int i = 0; i < 192; ++i) {
             if (hit >= exitDistance) break;
             float d = sphereField(eye + ray * hit - center, radius);
             if (d < 0.001) { found = true; break; }

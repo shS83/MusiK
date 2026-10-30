@@ -6,7 +6,7 @@ import sys
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QRectF, QTimer, QUrl
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen, QShortcut, QSurfaceFormat
 from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -61,6 +61,11 @@ class Oscilloscope(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(115)
+        self.spectrum_mode = False
+        self.spectrum = np.zeros(48)
+        self.spectrum_max = 20000.0
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Click to switch between oscilloscope and spectrum analyzer")
         self.samples = np.zeros(512)
         self.pending = self.samples
         self.timer = QTimer(self)
@@ -70,6 +75,18 @@ class Oscilloscope(QWidget):
 
     def set_samples(self, samples):
         self.pending = samples
+
+    def set_spectrum(self, levels, maximum):
+        self.spectrum = levels
+        self.spectrum_max = maximum
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.spectrum_mode = not self.spectrum_mode
+            self.update()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def tick(self):
         self.samples = self.pending
@@ -84,6 +101,27 @@ class Oscilloscope(QWidget):
             painter.drawLine(x, 0, x, self.height())
         for y in range(0, self.height(), 28):
             painter.drawLine(0, y, self.width(), y)
+        painter.setPen(QColor("#e4c7d6"))
+        painter.drawText(10, 16, "SPECTRUM · click for waveform" if self.spectrum_mode
+                         else "OSCILLOSCOPE · click for spectrum")
+        if self.spectrum_mode:
+            left, top, bottom = 10.0, 26.0, self.height() - 22.0
+            width = max(1.0, self.width() - 20.0)
+            step = width / len(self.spectrum)
+            for i, level in enumerate(self.spectrum):
+                height = float(np.clip(level, 0, 1)) * max(1, bottom - top)
+                painter.fillRect(QRectF(left + i * step, bottom - height,
+                                        max(1, step - 2), height), QColor("#ffc3a3"))
+            painter.setPen(QColor("#e4c7d6"))
+            for frequency in (30, 100, 1000, 10000):
+                if frequency >= self.spectrum_max:
+                    continue
+                x = left + width * np.log(frequency / 30) / np.log(self.spectrum_max / 30)
+                label = f"{frequency // 1000}k" if frequency >= 1000 else str(frequency)
+                painter.drawText(int(x), self.height() - 5, label)
+            painter.drawText(self.width() - 62, 16, "−72–0 dB")
+            painter.end()
+            return
         count = min(len(self.samples), max(2, self.width()))
         points = self.samples[np.linspace(0, len(self.samples) - 1, count).astype(int)]
         path = QPainterPath()
@@ -119,6 +157,7 @@ class MainWindow(QMainWindow):
         self.buffer_output.audioBufferReceived.connect(self.analysis.receive)
         self.build_ui()
         self.analysis.waveform.connect(self.scope.set_samples)
+        self.analysis.spectrum.connect(self.scope.set_spectrum)
         self.player.positionChanged.connect(self.position_changed)
         self.player.durationChanged.connect(self.duration_changed)
         self.player.seekableChanged.connect(self.update_controls)

@@ -38,6 +38,9 @@ tavallisia muotoja ovat MP3, FLAC, WAV, Ogg, Opus ja M4A.
 - **Load playlist** korvaa listan M3U/M3U8-tiedoston sisällöllä;
   **Save playlist** tallentaa UTF-8-soittolistan suhteellisilla tiedostopoluilla.
   Puuttuvat tiedostot ja verkkolinkit ohitetaan ilmoituksen kanssa.
+- **Oskilloskoopin napsautus** vaihtaa spektrianalysaattoriin; uusi napsautus
+  palauttaa oskilloskoopin. Spektrissä on 48 logaritmisesti jaettua taajuuskaistaa
+  (30 Hz–20 kHz, näytteenottotaajuuden rajoissa) ja −72–0 dB:n asteikko.
 - Aikajana siirtää toistokohtaa, Volume säätää äänenvoimakkuutta.
 - **Visualization** avaa visualisoinnin omaan ikkunaan. Sen sulkeminen ei
   keskeytä musiikkia. Pääikkunan sulkeminen lopettaa myös visualisoinnin.
@@ -64,7 +67,9 @@ näyttää voimakkaamman äänikanavan. Analyysi seuraa soittimen dekoodaamia
 Kuulan pinta reagoi lisäksi jatkuvasti keskiääniin (180–2500 Hz) ja
 ylä-ääniin (2500–16000 Hz, äänitiedoston näytteenottotaajuuden rajoissa).
 Keskiäänet synnyttävät laajempaa aaltoilua ja ylä-äänet ulospäin työntyviä,
-teräviä piikkejä. Piikkien korkeus seuraa ylä-äänien voimakkuutta, ja ne
+teräviä piikkejä. Piikit nousevat kaarevasti ja pehmeällä juurella suoraan pallon pinnasta.
+Niiden enimmäispituus on 1,35 kertaa pallon perussäde.
+Piikkien korkeus seuraa ylä-äänien voimakkuutta logaritmisesti, ja ne
 vetäytyvät äänen vaimentuessa. Muodonmuutos vaikuttaa sekä siluettiin että
 metallin heijastuksiin.
 Pehmeä voimakkuuden skaalaus tuo esiin myös hiljaisempia soittimia;

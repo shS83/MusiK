@@ -20,6 +20,7 @@ class BassDetector:
         self.average = 0.0
         self.previous = 0.0
         self.levels = np.zeros(2, dtype=np.float64)
+        self.spectrum_levels = np.zeros(48, dtype=np.float64)
         self.window = np.hanning(self.window_size)
 
     def feed(self, samples, rate):
@@ -31,6 +32,10 @@ class BassDetector:
             self.rate, self.channels = rate, samples.shape[1]
             self.pending = np.empty((0, self.channels), dtype=np.float32)
             frequencies = np.fft.rfftfreq(self.window_size, 1 / rate)
+            self.spectrum_edges = np.geomspace(30, min(20000, rate / 2), 49)
+            self.spectrum_bins = [np.flatnonzero((frequencies >= lo) & (frequencies < hi))
+                                  for lo, hi in zip(self.spectrum_edges[:-1], self.spectrum_edges[1:])]
+            self.spectrum_frequencies = frequencies
             self.band = (frequencies >= 35) & (frequencies <= 180)
             self.motion_bands = ((frequencies > 180) & (frequencies < 2500),
                                  (frequencies >= 2500) & (frequencies <= 16000))
@@ -40,6 +45,14 @@ class BassDetector:
             # Channel power avoids cancellation of opposite-phase stereo bass.
             spectrum = np.fft.rfft(self.pending[:self.window_size] * self.window[:, None], axis=0)
             power = np.mean(np.abs(spectrum) ** 2, axis=1)
+            amplitudes = 2 * np.sqrt(power) / self.window.sum()
+            centers = np.sqrt(self.spectrum_edges[:-1] * self.spectrum_edges[1:])
+            magnitudes = np.array([np.max(amplitudes[bins]) if len(bins)
+                                   else np.interp(center, self.spectrum_frequencies, amplitudes)
+                                   for bins, center in zip(self.spectrum_bins, centers)])
+            target_spectrum = np.clip((20 * np.log10(np.maximum(magnitudes, 1e-6)) + 72) / 72, 0, 1)
+            response_spectrum = np.where(target_spectrum > self.spectrum_levels, 0.025, 0.18)
+            self.spectrum_levels += (target_spectrum - self.spectrum_levels) * (1 - np.exp(-self.hop / rate / response_spectrum))
             energy = float(np.sqrt(np.sum(power[self.band])) / self.window.sum())
             band_energy = np.array([np.sqrt(np.sum(power[band])) / self.window.sum()
                                     for band in self.motion_bands])
@@ -65,6 +78,7 @@ class AudioAnalysis(QObject):
     beat = Signal(float)
     bands = Signal(float, float)
     waveform = Signal(object)
+    spectrum = Signal(object, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,6 +88,7 @@ class AudioAnalysis(QObject):
     def reset(self):
         self.detector.reset()
         self.bands.emit(0.0, 0.0)
+        self.spectrum.emit(np.zeros(48), 20000.0)
         self.waveform.emit(np.zeros(512, dtype=np.float32))
 
     def receive(self, buffer):
@@ -97,3 +112,4 @@ class AudioAnalysis(QObject):
         for strength in self.detector.feed(samples, fmt.sampleRate()):
             self.beat.emit(strength)
         self.bands.emit(*self.detector.levels)
+        self.spectrum.emit(self.detector.spectrum_levels.copy(), min(20000.0, fmt.sampleRate() / 2))

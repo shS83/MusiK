@@ -85,6 +85,24 @@ class AudioTests(unittest.TestCase):
         analysis.reset()
         self.assertEqual(received[-1], (0, 0))
 
+    def test_spectrum_pitch_stereo_and_silence(self):
+        for rate in (32000, 44100, 48000):
+            for frequency in (100, 1000, 8000):
+                t = np.arange(rate // 2) / rate
+                tone = 0.3 * np.sin(2 * np.pi * frequency * t)
+                detector = BassDetector()
+                for start in range(0, len(tone), 731):
+                    part = tone[start:start + 731]
+                    detector.feed(np.column_stack((part, -part)), rate)
+                peak = np.argmax(detector.spectrum_levels)
+                self.assertLess(detector.spectrum_edges[peak], frequency * 1.35)
+                self.assertGreater(detector.spectrum_edges[peak + 1], frequency / 1.35)
+                self.assertGreater(detector.spectrum_levels[peak], 0.7)
+                detector.feed(np.zeros((rate * 2, 2)), rate)
+                self.assertLess(max(detector.spectrum_levels), 0.001)
+                detector.reset()
+                self.assertEqual(max(detector.spectrum_levels), 0)
+
     def test_pcm_formats_and_inactive_analysis(self):
         analysis = AudioAnalysis()
         received = []

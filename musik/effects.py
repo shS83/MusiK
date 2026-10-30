@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 
 from .visualizer import Visualizer
 from .settings import EFFECTS
+from .lasers import LaserScene
 
 
 class MusicMotion:
@@ -43,6 +44,7 @@ class EffectVisualizer(Visualizer):
     def __init__(self, effect, parent=None):
         super().__init__(parent)
         self.effect = effect
+        self.lasers = LaserScene(effect - 4) if effect >= 4 else None
         self.setWindowTitle(f"MusiK · {EFFECTS[effect]} · F11 fullscreen · Esc close")
         self.dynamics = MusicMotion()
         self.energy_level = 0.0
@@ -50,13 +52,17 @@ class EffectVisualizer(Visualizer):
         self.resources = []
         self.source_fbo = self.source_texture = None
         self.source_size = None
-        self.matrix_color = 0
+        self.matrix_color = 1
         self.matrix_clock = 0.0
         self.glyphs = []
         self.streams = []
         self.rng = random.Random(1731)
         if effect == 3:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def on_phrase(self, number):
+        if self.lasers is not None:
+            self.lasers.change_phrase(number)
 
     def on_energy(self, level):
         self.energy_level = level
@@ -67,10 +73,12 @@ class EffectVisualizer(Visualizer):
         self.energy_level = 0.0
         self.energy_time = -100.0
         self.dynamics = MusicMotion()
+        if self.lasers is not None:
+            self.lasers.reset()
 
     def initializeGL(self):
         try:
-            if self.effect != 3:
+            if self.effect in (1, 2):
                 self.ctx = moderngl.create_context(require=330)
                 folder = Path(__file__).resolve().parent.parent / "shaders"
                 vertex = (folder / "scene.vert").read_text()
@@ -107,6 +115,9 @@ class EffectVisualizer(Visualizer):
         pulse = self.strength * math.exp(-max(0, now - self.beat_time) * 5.5)
         energy = self.energy_level * math.exp(-max(0, now - self.energy_time - .1) * 8)
         self.dynamics.step(dt, energy, mid, treble, pulse)
+        if self.lasers is not None:
+            self.lasers.paint(self, dt, self.dynamics.energy, mid, treble, pulse)
+            return
         if self.effect == 3:
             self.paint_matrix(dt, mid, treble, pulse)
             return
@@ -154,7 +165,7 @@ class EffectVisualizer(Visualizer):
     def make_glyphs(self):
         # Matrixia's mixed Katakana/ASCII rain, without its instruction toast.
         characters = "アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        palette = ("#38ff75", "#44dfff", "#ffb448", "#ff55bb", "#b394ff", "#fafafa", "#ff5757")
+        palette = ("#38ff75", "#4414ff", "#ffb448", "#ff55bb", "#b394ff", "#fafafa", "#ff5757")
         font = QFont("Yu Gothic", 15)
         font.setPixelSize(20)
         self.glyphs = []

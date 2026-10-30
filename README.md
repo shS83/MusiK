@@ -121,12 +121,67 @@ olla asennettuina. Lähteet: sisarprojektit `Psytunnel/tunnel.frag`,
 `hiss/shaders/scene.frag`, `hiss/shaders/hiss.frag` ja `Matrixia/matrixia.py`.
 Niiden MIT-lisenssi on mukana tiedostossa `licenses/effects-MIT.txt`.
 
+## Lasers-visualisaatiot
+
+Settings → Visualization sisältää myös viisi Lasers-projektista sovitettua
+visualisaatiota ilman HUD-tekstejä:
+
+| MusiKin nimi | Alkuperäinen tiedosto | Ilme |
+| --- | --- | --- |
+| Laser Nexus | `laser_convergence.py` | Pisteet kohti laukaisuhetken kohdetta |
+| Orbit Streams | `laser_convergence_v2.py` | Pistevirrat seuraavat liikkuvaa kohdetta |
+| Glyph Waves | `laser_convergence_v4.py` | Aaltoilevasti kääntyvät fonttimerkit |
+| Glyph Spin | `laser_convergence_v4_2.py` | Merkkien jatkuva täysi pyörintä |
+| Glyph Trails | `laser_convergence_v4_3.py` | Pyörivät merkit ja häipyvät jäljet |
+
+**Laser pattern changes** valitsee 4 tai 8 tahdin vaihtovälin. Tahtiarvio olettaa
+4/4-tahtilajin ja arvioi neljäsosanuotin pituuden bassoiskujen väleistä.
+Jakso käynnistyy ensimmäisistä tunnistetuista iskuista; tämä ei ole kappaleen
+ensimmäisen tahdin tai tahtilajin varma tunnistus. Synkopointi ja puoli-/tuplatempo
+voivat vaikuttaa arvioon. Ääninäytteiden kello ohjaa vaihtoja, joten ikkunan
+piirtonopeus ei muuta tahtimäärää. Pitkä hiljaisuus pysäyttää tahtiarvion.
+
+Jaksojen rajoilla muuttuvat säteiden määrä, pyörimisnopeus/suunta ja väri sekä
+merkkiversioissa merkkimäärä, koko ja merkki. Nopeus ja väri siirtyvät pehmeästi.
+Lisäksi kokonaisvoimakkuus, keskiäänet ja ylä-äänet ohjaavat liikettä jatkuvasti.
+Bassoiskut lisäävät valkoisen, eksponentiaalisesti häipyvän kick-välähdyksen,
+jota ei tallenneta efektin jälkikuvaan. Tauko, pysäytys ja haku nollaavat
+ääni- ja tahtianalyysin. Asetus säilyy seuraavaan käynnistykseen.
+
+Sovitukset ovat MusiKin sisällä eivätkä tarvitse Pygamea tai erillistä
+Lasers-hakemistoa. Alkuperäinen MIT-lisenssi: `licenses/lasers-MIT.txt`.
+
+## Kappaleen metatiedot ja Party Mode
+
+Pidä hiirtä soittolistan kappaleen päällä **2 sekuntia**, niin metatietoikkuna
+avautuu. Se näyttää tiedoston saatavilla olevat tiedot, esimerkiksi nimen,
+esittäjän, albumin, raidan numeron, genren, vuoden, keston ja bittinopeuden.
+Tietojen saatavuus riippuu tiedoston tageista ja Qt/FFmpeg-tuesta.
+Lukeminen ei vaihda soivaa kappaletta eikä keskeytä toistoa.
+
+Kansikuva etsitään samasta hakemistosta: ensisijaisesti kappaleen niminen kuva,
+`cover`, `folder`, `front`, `albumart`, `album` tai `artwork` (JPG, PNG, WebP,
+BMP); myös muut hakemiston kuvat kelpaavat. Jos hakemistosta ei löydy kuvaa,
+käytetään saatavilla olevaa upotettua kansikuvaa. Kuvahaku ei käytä verkkoa.
+Sulje ikkuna **Escillä** tai oikean yläkulman **×**-painikkeella. Sama kappale
+ei avaa ikkunaa heti uudelleen; siirrä kohdistin ensin pois kappaleelta.
+Selaus, raahaaminen ja riviltä poistuminen peruuttavat odottavan avauksen.
+
+**Party Mode** on **Start visualization** -painikkeen yläpuolella. Se käynnistää
+visualisoinnin ja kiertää kaikkia yhdeksää efektiä **15 sekunnin välein**.
+Uusi painallus pysäyttää kierron ja jättää nykyisen efektin näkyviin.
+Visualisaatioikkunan sulkeminen lopettaa myös Party Moden. Koko näytön tila
+ja ikkunan koko säilyvät vaihdoissa. Asetus- tai metatietoikkunan ollessa auki
+vaihtoja odotetaan, jotta kierto ei häiritse ikkunan käyttöä.
+Settingsistä valittu yksittäinen visualisaatio säilyy oletusvalintana;
+Party Mode ei tallenna kiertäviä efektejä sen päälle.
+
 ## Tarkistukset
 
 ```bash
 uv run python -m unittest tests.test_core -v
 # Asetukset, monivalinta ja efektien renderöinti (työpöytäistunto):
-uv run python -m unittest tests.test_settings_effects -v
+uv run python -m unittest tests.test_settings_effects tests.test_lasers tests.test_metadata_party -v
 # Työpöydällä; luo testiaallon, pitää äänen mykistettynä ja avaa testin ajaksi ikkunat:
 uv run python -m tests.smoke_desktop
 ```

@@ -7,7 +7,7 @@ import sys
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
 
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, QSize, QStandardPaths
+from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, QSize, QStandardPaths, QEvent
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QShortcut, QSurfaceFormat
 from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -21,7 +21,8 @@ from .playlist import load_playlist, save_playlist
 from .visualizer import Visualizer
 from .effects import EffectVisualizer
 from .folders import choose_folders
-from .settings import SettingsDialog, THEMES, default_store, load_settings
+from .settings import SettingsDialog, THEMES, EFFECTS, default_store, load_settings
+from .metadata import MetadataPlaylist, MetadataDialog
 import ctypes
 
 STYLE = """
@@ -156,6 +157,14 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(STYLE)
         self.current_item = None
         self.visualizer = None
+        self.visualizer_effect = None
+        self.metadata_dialog = None
+        self.party_active = False
+        self.party_index = self.preferences["effect"]
+        self.party_timer = QTimer(self)
+        self.party_timer.setInterval(15000)
+        self.party_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.party_timer.timeout.connect(self.advance_party)
         self.folder_scanner = None
         self.closing = False
         self.player = QMediaPlayer(self)
@@ -255,9 +264,16 @@ class MainWindow(QMainWindow):
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.show_settings)
         header.addWidget(self.settings_button)
-        self.visualize_button = QPushButton("✦  Visualization", objectName="visualize")
+        visual_controls = QVBoxLayout()
+        self.party_button = QPushButton("Party Mode")
+        self.party_button.setCheckable(True)
+        self.party_button.setToolTip("Cycle all visualizations every 15 seconds; click again to stop")
+        self.party_button.toggled.connect(self.set_party_mode)
+        visual_controls.addWidget(self.party_button)
+        self.visualize_button = QPushButton("✦  Start visualization", objectName="visualize")
         self.visualize_button.clicked.connect(self.show_visualizer)
-        header.addWidget(self.visualize_button)
+        visual_controls.addWidget(self.visualize_button)
+        header.addLayout(visual_controls)
         layout.addLayout(header)
 
         panel = QFrame(objectName="panel")
@@ -314,7 +330,8 @@ class MainWindow(QMainWindow):
         self.count_label = QLabel("0 tracks", objectName="muted")
         row.addWidget(self.count_label)
         box.addLayout(row)
-        self.playlist = QListWidget()
+        self.playlist = MetadataPlaylist()
+        self.playlist.metadata_requested.connect(self.show_track_metadata)
         self.playlist.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.playlist.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.playlist.setDefaultDropAction(Qt.DropAction.MoveAction)
@@ -351,6 +368,7 @@ class MainWindow(QMainWindow):
         self.preferences = dict(values)
         self.scope.scope_points = values["scope_points"]
         self.analysis.set_spectrum_bands(values["spectrum_bands"])
+        self.analysis.set_phrase_bars(values["laser_bars"])
         colors = THEMES[values["theme"]][1]
         style = STYLE
         for before, after in zip(("#381754", "#632b60", "#cf713e", "#f7ac81", "#f7ae89", "#f4ad88", "#9a5de0", "#ef9a65"),
@@ -367,6 +385,8 @@ class MainWindow(QMainWindow):
         self.scope.scope_background = QColor(colors[0]).darker(160).name()
         self.scope.update()
         self.sort_playlist(restore_manual=old["order"] != values["order"])
+        if old["effect"] != values["effect"]:
+            self.set_party_mode(False)
         if old["effect"] != values["effect"] and self.visualizer is not None:
             visible = self.visualizer.isVisible()
             fullscreen = self.visualizer.isFullScreen()
@@ -417,6 +437,8 @@ class MainWindow(QMainWindow):
         self.analysis.bands.disconnect(visual.on_bands)
         if isinstance(visual, EffectVisualizer):
             self.analysis.energy.disconnect(visual.on_energy)
+            self.analysis.phrase.disconnect(visual.on_phrase)
+        visual.removeEventFilter(self)
         visual.close()
         visual.deleteLater()
         self.visualizer = None
@@ -436,7 +458,7 @@ class MainWindow(QMainWindow):
                 continue
             item = QListWidgetItem(path.stem)
             item.setData(Qt.ItemDataRole.UserRole, str(path))
-            item.setToolTip(str(path))
+            item.setToolTip("")
             item.setData(Qt.ItemDataRole.UserRole + 1, self.import_counter)
             item.setData(Qt.ItemDataRole.UserRole + 2, random.random())
             self.import_counter += 1
@@ -641,21 +663,90 @@ class MainWindow(QMainWindow):
             self.visualizer.reset()
         self.player.setPosition(self.seek.value())
 
+    def show_track_metadata(self, path):
+        if self.metadata_dialog is not None:
+            return
+        self.playlist.metadata_open = True
+        self.metadata_dialog = MetadataDialog(path, self)
+        self.metadata_dialog.finished.connect(self.metadata_finished)
+        self.metadata_dialog.open()
+
+    def metadata_finished(self, result):
+        self.metadata_dialog = None
+        self.playlist.metadata_open = False
+        self.playlist.cancel_hover()
+
+    def set_party_mode(self, enabled):
+        self.party_active = bool(enabled)
+        self.party_button.blockSignals(True)
+        self.party_button.setChecked(self.party_active)
+        self.party_button.setText("Party Mode · On" if self.party_active else "Party Mode")
+        self.party_button.blockSignals(False)
+        if enabled:
+            self.party_index = (self.visualizer_effect if self.visualizer is not None
+                                else self.preferences["effect"])
+            self.show_visualizer()
+            if self.party_active:
+                self.party_timer.start()
+        else:
+            self.party_timer.stop()
+
+    def advance_party(self):
+        if not self.party_active:
+            return
+        if self.visualizer is None or not self.visualizer.isVisible():
+            self.set_party_mode(False)
+            return
+        # Do not steal focus or replace a window while the user is in a dialog.
+        if QApplication.activeModalWidget() is not None:
+            return
+        self.party_index = (self.party_index + 1) % len(EFFECTS)
+        self.show_visualizer()
+
+    def visualizer_failed(self, message):
+        self.set_party_mode(False)
+        self.statusBar().showMessage(message)
+
+    def eventFilter(self, watched, event):
+        if watched is self.visualizer and event.type() == QEvent.Type.Close:
+            self.set_party_mode(False)
+        return super().eventFilter(watched, event)
+
     def show_visualizer(self):
+        effect = self.party_index if self.party_active else self.preferences["effect"]
+        fullscreen = False
+        geometry = None
+        if self.visualizer is not None and self.visualizer_effect != effect:
+            fullscreen = self.visualizer.isFullScreen()
+            geometry = self.visualizer.normalGeometry() if fullscreen else self.visualizer.geometry()
+            self.dispose_visualizer()
         if self.visualizer is None:
-            effect = self.preferences["effect"]
             self.visualizer = Visualizer(self) if effect == 0 else EffectVisualizer(effect, self)
+            self.visualizer_effect = effect
+            self.visualizer.installEventFilter(self)
             if effect:
                 self.analysis.energy.connect(self.visualizer.on_energy)
+                self.analysis.phrase.connect(self.visualizer.on_phrase)
             self.analysis.beat.connect(self.visualizer.on_beat)
             self.analysis.bands.connect(self.visualizer.on_bands)
-            self.visualizer.failed.connect(lambda message: self.statusBar().showMessage(message))
-        self.visualizer.show()
+            self.visualizer.failed.connect(self.visualizer_failed)
+            if geometry is not None:
+                self.visualizer.setGeometry(geometry)
+        if fullscreen:
+            self.visualizer.showFullScreen()
+        else:
+            self.visualizer.show()
         self.visualizer.raise_()
         self.visualizer.activateWindow()
-        self.statusBar().showMessage("Visualization · F11: fullscreen · Esc: back / close · Matrixia: click to change colour")
+        if not self.visualizer.error:
+            prefix = "Party Mode · " if self.party_active else "Visualization · "
+            self.statusBar().showMessage(prefix + EFFECTS[effect] + " · F11: fullscreen · Esc: back / close")
 
     def closeEvent(self, event):
+        self.set_party_mode(False)
+        self.playlist.cancel_hover()
+        if self.metadata_dialog is not None:
+            self.metadata_dialog.reject()
         self.player.stop()
         if self.visualizer:
             self.visualizer.close()

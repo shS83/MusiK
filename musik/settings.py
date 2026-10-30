@@ -27,10 +27,11 @@ def make_themes():
 
 THEMES = make_themes()
 ORDERS = ("Manual / import order", "Title A–Z", "Title Z–A", "Folder / filename", "Shuffled")
-EFFECTS = ("Chrome sphere", "PsyTunnel", "Hiss", "Matrixia")
-DEFAULTS = {"scope_points": 512, "spectrum_bands": 48, "order": 0, "theme": 0, "effect": 0}
+EFFECTS = ("Chrome sphere", "PsyTunnel", "Hiss", "Matrixia",
+           "Laser Nexus", "Orbit Streams", "Glyph Waves", "Glyph Spin", "Glyph Trails")
+DEFAULTS = {"scope_points": 512, "spectrum_bands": 48, "order": 0, "theme": 0, "effect": 0, "laser_bars": 4}
 LIMITS = {"scope_points": (64, 2048), "spectrum_bands": (16, 128), "order": (0, 4),
-          "theme": (0, 19), "effect": (0, 3)}
+          "theme": (0, 19), "effect": (0, len(EFFECTS) - 1), "laser_bars": (4, 8)}
 
 
 def load_settings(store):
@@ -42,6 +43,7 @@ def load_settings(store):
             value = default
         low, high = LIMITS[key]
         values[key] = max(low, min(high, value))
+    values["laser_bars"] = 8 if values["laser_bars"] == 8 else 4
     return values
 
 
@@ -90,6 +92,12 @@ class SettingsDialog(QDialog):
         self.effect.addItems(EFFECTS)
         self.effect.setCurrentIndex(values["effect"])
         form.addRow("Visualization", self.effect)
+        self.laser_bars = QComboBox()
+        self.laser_bars.addItem("Every 4 bars", 4)
+        self.laser_bars.addItem("Every 8 bars", 8)
+        self.laser_bars.setCurrentIndex(1 if values["laser_bars"] == 8 else 0)
+        self.laser_bars.setToolTip("Estimated 4/4 phrases from bass onsets; timing depends on the music")
+        form.addRow("Laser pattern changes", self.laser_bars)
         layout.addLayout(form)
         hint = QLabel("Settings are remembered. In Matrixia, click the visualization to change colour.\n"
                       "PsyTunnel: bass flashes white, quiet passages can reverse the motion.")
@@ -103,4 +111,4 @@ class SettingsDialog(QDialog):
     def values(self):
         return {"scope_points": self.scope_points.value(), "spectrum_bands": self.spectrum_bands.value(),
                 "order": self.order.currentIndex(), "theme": self.theme.currentIndex(),
-                "effect": self.effect.currentIndex()}
+                "effect": self.effect.currentIndex(), "laser_bars": self.laser_bars.currentData()}

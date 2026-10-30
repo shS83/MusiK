@@ -142,6 +142,13 @@ class DesktopSettingsTests(unittest.TestCase):
             if effect:
                 visual.on_energy(.8)
             QTest.qWait(160)
+            if effect == 3:
+                # Streams now enter from above and leave stationary glyphs.
+                # Keep audio arriving while enough rows enter the viewport.
+                for _ in range(20):
+                    visual.on_energy(.8)
+                    visual.on_bands(.7, .65)
+                    QTest.qWait(30)
             self.assertFalse(visual.error, visual.error)
             self.assertTrue(visual.isValid())
             frame = visual.grabFramebuffer()

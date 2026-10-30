@@ -3,6 +3,8 @@ import numpy as np
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtMultimedia import QAudioFormat
 
+from .rhythm import PhraseClock
+
 
 class BassDetector:
     window_size = 2048
@@ -10,6 +12,7 @@ class BassDetector:
 
     def __init__(self):
         self.spectrum_count = 48
+        self.phrase_bars = 4
         self.reset()
 
     def reset(self):
@@ -17,6 +20,8 @@ class BassDetector:
         self.rate = 0
         self.channels = 0
         self.clock = 0.0
+        self.phrase_clock = PhraseClock(self.phrase_bars)
+        self.phrase_events = []
         self.last_beat = -1.0
         self.average = 0.0
         self.previous = 0.0
@@ -42,6 +47,7 @@ class BassDetector:
                                  (frequencies >= 2500) & (frequencies <= 16000))
         self.pending = np.concatenate((self.pending, samples))
         beats = []
+        self.phrase_events = []
         while len(self.pending) >= self.window_size:
             # Channel power avoids cancellation of opposite-phase stereo bass.
             spectrum = np.fft.rfft(self.pending[:self.window_size] * self.window[:, None], axis=0)
@@ -64,10 +70,14 @@ class BassDetector:
             response = np.where(target > self.levels, 0.025, 0.16)
             self.levels += (target - self.levels) * (1 - np.exp(-self.hop / rate / response))
             threshold = max(0.012, self.average * 1.55)
-            if (energy > threshold and energy > self.previous * 1.13 + 0.003
-                    and self.clock - self.last_beat >= 0.22):
+            onset = (energy > threshold and energy > self.previous * 1.13 + 0.003
+                     and self.clock - self.last_beat >= 0.22)
+            if onset:
                 beats.append(min(1.0, max(0.35, energy * 5)))
                 self.last_beat = self.clock
+            audible = np.sqrt(np.sum(power)) / self.window.sum() > .003
+            if self.phrase_clock.advance(self.hop / rate, onset, audible):
+                self.phrase_events.append(self.phrase_clock.phrases)
             self.average += (energy - self.average) * (1 - np.exp(-self.hop / rate / 0.45))
             self.previous = energy
             self.clock += self.hop / rate
@@ -81,6 +91,7 @@ class AudioAnalysis(QObject):
     waveform = Signal(object)
     spectrum = Signal(object, float)
     energy = Signal(float)
+    phrase = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -99,6 +110,12 @@ class AudioAnalysis(QObject):
         if count != self.detector.spectrum_count:
             self.detector.spectrum_count = count
             self.reset()
+
+    def set_phrase_bars(self, bars):
+        bars = 8 if bars == 8 else 4
+        if bars != self.detector.phrase_bars:
+            self.detector.phrase_bars = bars
+            self.detector.phrase_clock.set_bars(bars)
 
     def receive(self, buffer):
         if not self.active or not buffer.isValid() or not buffer.frameCount():
@@ -121,5 +138,7 @@ class AudioAnalysis(QObject):
         self.waveform.emit(samples[-2048:, channel].copy())
         for strength in self.detector.feed(samples, fmt.sampleRate()):
             self.beat.emit(strength)
+        for number in self.detector.phrase_events:
+            self.phrase.emit(number)
         self.bands.emit(*self.detector.levels)
         self.spectrum.emit(self.detector.spectrum_levels.copy(), min(20000.0, fmt.sampleRate() / 2))

@@ -257,8 +257,9 @@ void main() {
         color = floorColor(eye + ray * distanceToEye, distanceToEye);
     }
 
-    float radius = 1.0 + u_pulse * 0.20;
-    vec3 center = vec3(0.0, 1.38 + u_pulse * 0.10 + spikeHeight() * 0.80, 0.0);
+    // float radius = 1.0 + u_pulse * 0.20;
+    float radius = 1.0 + u_pulse * 0.025;
+    vec3 center = vec3(0.0, 1.38, -u_pulse * 0.06);
     vec3 oc = eye - center;
     float b = dot(oc, ray);
     float bound = radius + 0.11 * u_mid + spikeHeight();

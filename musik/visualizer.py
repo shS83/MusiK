@@ -9,6 +9,8 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
+from .borderless import BorderlessWindow
+
 
 class Visualizer(QOpenGLWidget):
     failed = Signal(str)
@@ -18,6 +20,7 @@ class Visualizer(QOpenGLWidget):
         self.setWindowFlag(Qt.WindowType.Window, True)
         self.setWindowTitle("MusiK · Visualization — F11 fullscreen · Esc close")
         self.resize(1280, 720)
+        self.borderless = BorderlessWindow(self)
         self.ctx = self.program = self.vao = None
         self.error = ""
         self.started = time.monotonic()
@@ -108,9 +111,9 @@ class Visualizer(QOpenGLWidget):
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            self.showNormal() if self.isFullScreen() else self.close()
+            self.borderless.set_active(False) if self.borderless.active else self.close()
         elif key == Qt.Key.Key_F11:
-            self.showNormal() if self.isFullScreen() else self.showFullScreen()
+            self.borderless.toggle()
         elif key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             self.density = max(0, min(4, self.density + (0.1 if key == Qt.Key.Key_Up else -0.1)))
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right):

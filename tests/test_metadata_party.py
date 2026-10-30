@@ -139,13 +139,13 @@ class MetadataPartyTests(unittest.TestCase):
         self.assertTrue(self.window.party_active)
         self.assertTrue(self.window.party_timer.isActive())
         self.window.party_timer.stop()  # Drive boundaries deterministically.
-        self.window.visualizer.showFullScreen()
+        self.window.visualizer.borderless.set_active(True)
         QTest.qWait(40)
         seen = {self.window.visualizer_effect}
         for _ in range(len(EFFECTS)):
             self.window.advance_party()
             QTest.qWait(40)
-            self.assertTrue(self.window.visualizer.isFullScreen())
+            self.assertTrue(self.window.visualizer.borderless.active)
             self.assertFalse(self.window.visualizer.error)
             seen.add(self.window.visualizer_effect)
         self.assertEqual(seen, set(range(len(EFFECTS))))

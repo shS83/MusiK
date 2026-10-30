@@ -389,12 +389,14 @@ class MainWindow(QMainWindow):
             self.set_party_mode(False)
         if old["effect"] != values["effect"] and self.visualizer is not None:
             visible = self.visualizer.isVisible()
-            fullscreen = self.visualizer.isFullScreen()
+            fullscreen = self.visualizer.borderless.active
+            geometry = self.visualizer.borderless.geometry if fullscreen else self.visualizer.geometry()
             self.dispose_visualizer()
             if visible:
                 self.show_visualizer()
+                self.visualizer.setGeometry(geometry)
                 if fullscreen:
-                    self.visualizer.showFullScreen()
+                    self.visualizer.borderless.set_active(True)
         if persist:
             for key, value in values.items():
                 self.settings_store.setValue(key, value)
@@ -717,8 +719,8 @@ class MainWindow(QMainWindow):
         fullscreen = False
         geometry = None
         if self.visualizer is not None and self.visualizer_effect != effect:
-            fullscreen = self.visualizer.isFullScreen()
-            geometry = self.visualizer.normalGeometry() if fullscreen else self.visualizer.geometry()
+            fullscreen = self.visualizer.borderless.active
+            geometry = self.visualizer.borderless.geometry if fullscreen else self.visualizer.geometry()
             self.dispose_visualizer()
         if self.visualizer is None:
             self.visualizer = Visualizer(self) if effect == 0 else EffectVisualizer(effect, self)
@@ -732,10 +734,9 @@ class MainWindow(QMainWindow):
             self.visualizer.failed.connect(self.visualizer_failed)
             if geometry is not None:
                 self.visualizer.setGeometry(geometry)
+        self.visualizer.show()
         if fullscreen:
-            self.visualizer.showFullScreen()
-        else:
-            self.visualizer.show()
+            self.visualizer.borderless.set_active(True)
         self.visualizer.raise_()
         self.visualizer.activateWindow()
         if not self.visualizer.error:

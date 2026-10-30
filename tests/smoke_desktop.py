@@ -109,7 +109,7 @@ def main():
             QTest.qWait(100)
             QTest.keyClick(visual, Qt.Key.Key_F11)
             QTest.qWait(100)
-            assert visual.isFullScreen()
+            assert visual.borderless.active
             QTest.keyClick(visual, Qt.Key.Key_Escape)
             visual.close()
             assert not visual.timer.isActive()

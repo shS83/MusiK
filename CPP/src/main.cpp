@@ -264,12 +264,21 @@ protected:
             if (!GetMonitorInfoW(monitor, &info)) return;
             const RECT &r = info.rcMonitor;
             LONG_PTR style = nativeStyle;
-            style &= ~(static_cast<LONG_PTR>(WS_CAPTION) | static_cast<LONG_PTR>(WS_THICKFRAME));
+            style &= ~(static_cast<LONG_PTR>(WS_MAXIMIZE) | static_cast<LONG_PTR>(WS_CAPTION) | static_cast<LONG_PTR>(WS_THICKFRAME));
             style &= ~(static_cast<LONG_PTR>(WS_MINIMIZEBOX) | static_cast<LONG_PTR>(WS_MAXIMIZEBOX) | static_cast<LONG_PTR>(WS_SYSMENU));
             LONG_PTR exStyle = nativeExStyle;
             exStyle &= ~(static_cast<LONG_PTR>(WS_EX_DLGMODALFRAME) | static_cast<LONG_PTR>(WS_EX_CLIENTEDGE) | static_cast<LONG_PTR>(WS_EX_STATICEDGE) | static_cast<LONG_PTR>(WS_EX_WINDOWEDGE));
+            // A fully opaque, monitor-sized OpenGL window can be promoted by
+            // the driver to fullscreen scanout even without a mode-set API.
+            // Require desktop blending before resizing (254/255 opacity).
+            // Keep the existing HWND/context; do not use Qt::WindowFullScreen.
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+            if (!SetLayeredWindowAttributes(hwnd, 0, 254, LWA_ALPHA)) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, nativeExStyle);
+                qWarning("Could not enable desktop-composited borderless window");
+                return;
+            }
             SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_VISIBLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
             if (!SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right-r.left, r.bottom-r.top,
                               SWP_FRAMECHANGED | SWP_SHOWWINDOW)) {
                 SetWindowLongPtrW(hwnd, GWL_STYLE, nativeStyle);
@@ -279,8 +288,9 @@ protected:
             borderless = true;
         } else {
             SetWindowLongPtrW(hwnd, GWL_STYLE, nativeStyle);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, nativeExStyle);
             SetWindowPlacement(hwnd, &nativePlacement);
+            // Remove the blending guard only after restoring the window size.
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, nativeExStyle);
             SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
             borderless = false;

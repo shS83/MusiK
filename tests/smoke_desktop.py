@@ -51,16 +51,24 @@ def main():
         try:
             window.add_paths(paths)
             window.show()
-            assert window.play_button.text() == "Play"
+            for button in (window.previous_button, window.play_button, window.stop_button, window.next_button):
+                assert button.text() == ""
+                assert button.toolTip() == button.accessibleName()
+            for icon in window.transport_icons.values():
+                image = icon.pixmap(26, 26).toImage()
+                opaque = [image.pixelColor(x, y) for x in range(26) for y in range(26)
+                          if image.pixelColor(x, y).alpha() == 255]
+                assert opaque and all(pixel.name() == "#ffffff" for pixel in opaque)
+            assert window.play_button.accessibleName() == "Play"
             window.play_button.click()
             wait_until(lambda: window.player.position() > 600)
-            assert window.play_button.text() == "Pause"
+            assert window.play_button.accessibleName() == "Pause"
             assert beats and max(buffers) > 0.1, (beats, buffers)
             assert max(window.scope.spectrum) > 0.1
             QTest.mouseClick(window.scope, Qt.MouseButton.LeftButton)
-            assert window.scope.spectrum_mode
+            assert window.scope.display_mode == 1
             QTest.mouseClick(window.scope, Qt.MouseButton.LeftButton)
-            assert not window.scope.spectrum_mode
+            assert window.scope.display_mode == 2
             window.show_visualizer()
             QTest.qWait(400)
             visual = window.visualizer
@@ -78,7 +86,7 @@ def main():
                     wait_until(lambda: visual.dynamics.energy > 0.05)
             window.play_button.click()
             QTest.qWait(100)
-            assert window.play_button.text() == "Play"
+            assert window.play_button.accessibleName() == "Play"
             assert visual.motion == [0.0, 0.0]
             assert max(window.scope.spectrum) == 0
             paused = window.player.position()
@@ -88,7 +96,7 @@ def main():
             window.playlist.setCurrentRow(1)
             window.play_button.click()
             wait_until(lambda: window.player.position() > paused)
-            assert window.play_button.text() == "Pause"
+            assert window.play_button.accessibleName() == "Pause"
             assert window.current_item is window.playlist.item(0)
             window.next()
             wait_until(lambda: window.player.position() > 100)
@@ -97,14 +105,14 @@ def main():
             assert window.current_item is window.playlist.item(0)
             # Wait for the new source to start before seeking near its end.
             wait_until(lambda: window.player.position() > 100)
-            # Automatic next, then natural stop at the end of the list.
+            # Automatic next wraps at the end of the list.
             wait_until(lambda: window.player.isSeekable())
             window.player.setPosition(7800)
             wait_until(lambda: window.current_item is window.playlist.item(1))
             wait_until(lambda: window.player.position() > 50)
             window.player.setPosition(7800)
-            wait_until(lambda: window.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState)
-            assert window.play_button.text() == "Play"
+            wait_until(lambda: window.current_item is window.playlist.item(0))
+            window.stop()
             visual.resize(960, 540)
             QTest.qWait(100)
             QTest.keyClick(visual, Qt.Key.Key_F11)

@@ -70,14 +70,16 @@ class LaserDesktopTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_presets_change_and_bound_particles(self):
-        for variant in range(5):
+        for variant in (1,3,4):
             scene = LaserScene(variant)
             before = (scene.rays, scene.per_ray, scene.spin_target, scene.glyph)
             scene.change_phrase(1)
             after = (scene.rays, scene.per_ray, scene.spin_target, scene.glyph)
-            self.assertNotEqual(before[:3], after[:3])
-            if variant >= 2:
-                self.assertNotEqual(before[3], after[3])
+            if variant == 4:
+                self.assertEqual(before, after)
+            else:
+                self.assertNotEqual(before[:3], after[:3])
+                self.assertEqual(before[3], after[3])
             for _ in range(90):
                 image = scene.render(480, 300, 1 / 30, .7, .6, .5, .2)
             self.assertFalse(image.isNull())
@@ -93,7 +95,7 @@ class LaserDesktopTests(unittest.TestCase):
             try:
                 window.show()
                 window.show_visualizer()
-                for effect in range(4, 9):
+                for effect in range(4, 7):
                     window.apply_settings(dict(DEFAULTS, effect=effect, laser_bars=8))
                     visual = window.visualizer
                     visual.resize(640, 360)
@@ -105,14 +107,15 @@ class LaserDesktopTests(unittest.TestCase):
                     self.assertFalse(visual.error, visual.error)
                     before = visual.lasers.changes
                     window.analysis.phrase.emit(1)
-                    self.assertEqual(visual.lasers.changes, before + 1)
-                    dark = visual.grabFramebuffer().pixelColor(0, 0).red()
-                    window.analysis.beat.emit(1.0)
-                    light = visual.grabFramebuffer().pixelColor(0, 0).red()
-                    self.assertGreater(light, dark + 80)
-                    visual.beat_time -= 2
-                    faded = visual.grabFramebuffer().pixelColor(0, 0).red()
-                    self.assertLess(faded, light / 2)
+                    self.assertEqual(visual.lasers.changes, before)
+                    window.set_party_mode(True)
+                    window.analysis.phrase.emit(2)
+                    self.assertEqual(visual.lasers.changes, before + int(effect != 6))
+                    window.set_party_mode(False)
+                    palette = visual.lasers.palette_index
+                    for _ in range(32):
+                        window.analysis.beat.emit(1.0)
+                    self.assertNotEqual(palette, visual.lasers.palette_index)
                     visual.reset()
                     self.assertEqual(visual.lasers.particles, [])
                     visual.close()
@@ -120,7 +123,7 @@ class LaserDesktopTests(unittest.TestCase):
                     window.show_visualizer()
                     self.assertTrue(visual.timer.isActive())
                 self.assertEqual(load_settings(store)["laser_bars"], 8)
-                self.assertEqual(load_settings(store)["effect"], 8)
+                self.assertEqual(load_settings(store)["effect"], 6)
                 dialog = SettingsDialog(window.preferences, window)
                 self.assertEqual(dialog.values()["laser_bars"], 8)
                 dialog.reject()

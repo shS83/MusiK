@@ -134,7 +134,7 @@ class MetadataPartyTests(unittest.TestCase):
 
     def test_party_cycles_all_preserves_fullscreen_and_settings(self):
         original = dict(self.window.preferences)
-        self.assertEqual(self.window.party_timer.interval(), 15000)
+        self.assertEqual(self.window.party_timer.interval(), 12000)
         self.window.party_button.click()
         self.assertTrue(self.window.party_active)
         self.assertTrue(self.window.party_timer.isActive())

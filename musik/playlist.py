@@ -1,7 +1,8 @@
 """Portable local-file M3U playlists (relative to the playlist directory)."""
 import os
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 
 def load_playlist(filename):
@@ -12,7 +13,9 @@ def load_playlist(filename):
         if not line or line.startswith("#"):
             continue
         if line.startswith("file://"):
-            line = unquote(urlparse(line).path)
+            url = urlparse(line)
+            server = "//" + url.netloc if url.netloc and url.netloc != "localhost" else ""
+            line = url2pathname(server + url.path)
         elif "://" in line:
             missing.append(line)
             continue

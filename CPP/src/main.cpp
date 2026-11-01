@@ -213,7 +213,7 @@ public:
         clock.start(); last=clock.elapsed();
     }
     static int laserVariant(int value){return value==4?1:(value==5?3:4);}
-    void setEffect(int value) { effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("MusiK C++ · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
+    void setEffect(int value) { effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
     static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks"};}
     void setSound(SoundState s){ sound=s; }
     void changeLaserPhrase(){if(laser)laser->phrase();}
@@ -807,7 +807,7 @@ void main(){
             else {program->setUniformValue("uResolution",QVector2D(w,h));program->setUniformValue("uTime",phase);program->setUniformValue("uCamera",QVector3D(.18f*std::sin(phase*.23f),.15f*std::cos(phase*.19f),travel));program->setUniformValue("uForward",QVector3D(0,0,1));program->setUniformValue("uRight",QVector3D(std::cos(phase*.08f),std::sin(phase*.08f),0));program->setUniformValue("uUp",QVector3D(-std::sin(phase*.08f),std::cos(phase*.08f),0));program->setUniformValue("uPaletteFrom",1);program->setUniformValue("uPaletteTo",1);program->setUniformValue("uPaletteMix",0.f);program->setUniformValue("uFlash",std::min(.65f,sound.pulse*.65f));}
         }
         glDrawArrays(GL_TRIANGLES,0,3);program->release();
-        frames++;fpsSeconds+=dt;if(fpsSeconds>=1){setWindowTitle(QString("MusiK C++ · %1 · %2 FPS · F11 / Esc").arg(names().value(effect)).arg(std::round(frames/fpsSeconds)));frames=0;fpsSeconds=0;}
+        frames++;fpsSeconds+=dt;if(fpsSeconds>=1){setWindowTitle(QString("μSIK · %1 · %2 FPS · F11 / Esc").arg(names().value(effect)).arg(std::round(frames/fpsSeconds)));frames=0;fpsSeconds=0;}
     }
 private:
     std::unique_ptr<QOpenGLShaderProgram> fireProgram;GLuint fireVao=0,fireVbo=0;
@@ -918,7 +918,7 @@ private:
 class PlayerWindow:public QMainWindow {
 public:
     PlayerWindow(){
-        setWindowTitle("MusiK");resize(1130,820);setMinimumSize(930,670);setStyleSheet(R"CSS(
+        setWindowTitle("μSIK");resize(1130,820);setMinimumSize(930,670);setStyleSheet(R"CSS(
 QMainWindow{background:#24132c;}QWidget#canvas{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #381754,stop:0.46 #632b60,stop:1 #cf713e);}QWidget{color:#fff4ed;font-family: "Noto Sans";font-size:13px;}
 QLabel#brand{font-size:42px;font-weight:800;}QLabel#eyebrow{color:#e8c1d6;font-size:11px;}
 QLabel#track{font-size:22px;font-weight:600;}QFrame#panel{background:#28162f;border:1px solid #69425b;border-radius:18px;}
@@ -930,7 +930,7 @@ QListWidget::item:selected{background:#80537e;}QComboBox{background:#422442;padd
 QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizontal{background:#ffe1cc;width:12px;margin:-5px 0;border-radius:6px;}
 )CSS");
         auto *central=new QWidget;central->setObjectName("canvas");setCentralWidget(central);auto *v=new QVBoxLayout(central);v->setContentsMargins(30,22,30,24);v->setSpacing(16);
-        auto *header=new QHBoxLayout;auto *brand=new QVBoxLayout;auto *title=new QLabel("MusiK");title->setObjectName("brand");brand->addWidget(title);auto *tagline=new QLabel("SOUND INTO COLOUR");tagline->setObjectName("eyebrow");brand->addWidget(tagline);header->addLayout(brand);header->addStretch();
+        auto *header=new QHBoxLayout;auto *brand=new QVBoxLayout;auto *title=new QLabel("μSIK");title->setObjectName("brand");brand->addWidget(title);auto *tagline=new QLabel("SOUND INTO COLOUR");tagline->setObjectName("eyebrow");brand->addWidget(tagline);header->addLayout(brand);header->addStretch();
         auto *party=new QPushButton("✦ Party Mode");party->setStyleSheet("color:#ffffff;");party->setCheckable(true);party->setObjectName("primary");header->addWidget(party);auto *settingsButton=new QPushButton("Settings");header->addWidget(settingsButton);v->addLayout(header);
         auto *now=new QFrame;now->setObjectName("panel");auto *nowLayout=new QVBoxLayout(now);nowLayout->addWidget(new QLabel("NOW PLAYING"));trackLabel=new QLabel("Your next favourite sound");trackLabel->setObjectName("track");nowLayout->addWidget(trackLabel);
         scope=new ScopeWidget;nowLayout->addWidget(scope);
@@ -998,12 +998,15 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             }else if(kind==3){
                 painter.drawRect(QRectF(25,7,3,20));
                 QPolygonF a; a << QPointF(10,7) << QPointF(23,17) << QPointF(10,27); painter.drawPolygon(a);
+            }else if(kind==4){
+                painter.drawRect(QRectF(10,7,5,20));
+                painter.drawRect(QRectF(19,7,5,20));
             }
             painter.end();
             return QIcon(pix);
         };
         auto *previous=new QPushButton;previous->setToolTip("Previous"); previous->setIcon(makeTransportIcon(0));
-        auto *play=new QPushButton;play->setToolTip("Play / Pause"); play->setIcon(makeTransportIcon(1));
+        auto *play=new QPushButton;play->setToolTip("Play"); play->setAccessibleName("Play"); play->setIcon(makeTransportIcon(1));
         auto *stop=new QPushButton;stop->setToolTip("Stop"); stop->setIcon(makeTransportIcon(2));
         auto *next=new QPushButton;next->setToolTip("Next"); next->setIcon(makeTransportIcon(3));
         auto *visButton=new QPushButton(QString::fromUtf8("✦ Visualization"));visButton->setStyleSheet("color:#ffffff;");
@@ -1036,6 +1039,14 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         QObject::connect(remove,&QPushButton::clicked,this,[this]{qDeleteAll(list->selectedItems());refreshNumbers();});
         QObject::connect(save,&QPushButton::clicked,this,[this]{auto p=QFileDialog::getSaveFileName(this,"Save playlist","MusiK.m3u8","Playlist (*.m3u8)");if(!p.isEmpty())saveList(p);});
         QObject::connect(load,&QPushButton::clicked,this,[this]{auto p=QFileDialog::getOpenFileName(this,"Load playlist",QString(),"Playlist (*.m3u8 *.m3u)");if(!p.isEmpty())loadList(p);});
+        QObject::connect(player, &QMediaPlayer::playbackStateChanged, play,
+                         [play, playIcon = play->icon(), pauseIcon = makeTransportIcon(4)](QMediaPlayer::PlaybackState state) {
+            const bool playing = state == QMediaPlayer::PlayingState;
+            play->setIcon(playing ? pauseIcon : playIcon);
+            const QString action = playing ? QStringLiteral("Pause") : QStringLiteral("Play");
+            play->setToolTip(action);
+            play->setAccessibleName(action);
+        });
         QObject::connect(play,&QPushButton::clicked,this,[this]{if(player->playbackState()==QMediaPlayer::PlayingState)player->pause();else {if(player->source().isEmpty())playRow(list->currentRow()<0?0:list->currentRow());else player->play();}});
         QObject::connect(stop,&QPushButton::clicked,player,&QMediaPlayer::stop);
         QObject::connect(previous,&QPushButton::clicked,this,[this]{playRow(nextTrackIndex(-1));});
@@ -1048,7 +1059,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         QObject::connect(&partyTimer,&QTimer::timeout,this,[this]{if(!partyEnabled)return;int next=(effects->currentIndex()+1)%effects->count();effects->setCurrentIndex(next);visual.setEffect(next);visual.show();});
         QObject::connect(&rainbowTimer,&QTimer::timeout,this,[this,title]{rainbowPhase=(rainbowPhase+3)%360;title->setStyleSheet(QString("color: hsl(%1, 100%, 65%);").arg(rainbowPhase));});
         QObject::connect(settingsButton,&QPushButton::clicked,this,[this]{
-            QDialog dialog(this);dialog.setWindowTitle("MusiK Settings");dialog.resize(520,510);
+            QDialog dialog(this);dialog.setWindowTitle("μSIK Settings");dialog.resize(520,510);
             auto *layout=new QVBoxLayout(&dialog);
             auto *form=new QFormLayout;layout->addLayout(form);
             auto *choice=new QComboBox;choice->addItems(Visual::names());choice->setCurrentIndex(effects->currentIndex());form->addRow("Visualization",choice);
@@ -1058,7 +1069,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             auto *scopeMode=new QComboBox;scopeMode->addItems({"Oscilloscope","Spectrum analyzer","Combo (half + half)"});scopeMode->setCurrentIndex(scope->mode());form->addRow("Audio display",scopeMode);
             auto *scopeDensity=new QSpinBox;scopeDensity->setRange(64,4096);scopeDensity->setValue(scopeSetting);form->addRow("Oscilloscope points",scopeDensity);
             auto *spectrumDensity=new QSpinBox;spectrumDensity->setRange(8,2048);spectrumDensity->setValue(spectrumSetting);form->addRow("Spectrum bars (1 px possible)",spectrumDensity);
-            auto *gradientChoice=new QComboBox;gradientChoice->addItems({"MusiK purple / orange","Black → White","Bright yellow → Deep green","Electric cyan → Deep blue","Coral → Midnight violet","Lime → Deep teal","Electric pink → Midnight blue","Golden orange → Deep burgundy","Custom colors"});gradientChoice->setCurrentIndex(gradientSelection);form->addRow("Background gradient",gradientChoice);
+            auto *gradientChoice=new QComboBox;gradientChoice->addItems({"μSIK purple / orange","Black → White","Bright yellow → Deep green","Electric cyan → Deep blue","Coral → Midnight violet","Lime → Deep teal","Electric pink → Midnight blue","Golden orange → Deep burgundy","Custom colors"});gradientChoice->setCurrentIndex(gradientSelection);form->addRow("Background gradient",gradientChoice);
             auto *reverse=new QCheckBox("Reverse gradient direction");reverse->setChecked(reverseGradient);form->addRow("",reverse);
             auto *colors=new QPushButton("Choose custom gradient stops…");layout->addWidget(colors);
             QObject::connect(colors,&QPushButton::clicked,&dialog,[this,&dialog]{QColor a=QColorDialog::getColor(customStart,&dialog,"Gradient start");if(a.isValid())customStart=a;QColor b=QColorDialog::getColor(customEnd,&dialog,"Gradient end");if(b.isValid())customEnd=b;});
@@ -1207,7 +1218,7 @@ private:
 };
 int main(int argc,char **argv){
     QSurfaceFormat fmt;fmt.setVersion(3,3);fmt.setProfile(QSurfaceFormat::CoreProfile);fmt.setSwapInterval(1);QSurfaceFormat::setDefaultFormat(fmt);
-    QApplication app(argc,argv);app.setApplicationName("MusiKCpp");app.setOrganizationName("MusiK");
+    QApplication app(argc,argv);app.setApplicationName("MusiKCpp");app.setApplicationDisplayName("μSIK");app.setOrganizationName("MusiK");
     QIcon icon(QCoreApplication::applicationDirPath()+"/MusiK-logo.png");app.setWindowIcon(icon);
     PlayerWindow window;window.setWindowIcon(icon);for(int i=1;i<argc;i++)window.addFile(QString::fromLocal8Bit(argv[i]));window.show();return app.exec();
 }

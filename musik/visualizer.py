@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from .borderless import BorderlessWindow
+from .settings import EFFECTS
 
 
 class Visualizer(QOpenGLWidget):
@@ -18,7 +19,7 @@ class Visualizer(QOpenGLWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlag(Qt.WindowType.Window, True)
-        self.setWindowTitle("MusiK · Visualization — F11 fullscreen · Esc close")
+        self.setWindowTitle("μSIK · Visualization — F11 fullscreen · Esc close")
         self.resize(1280, 720)
         self.borderless = BorderlessWindow(self)
         self.ctx = self.program = self.vao = None
@@ -26,6 +27,7 @@ class Visualizer(QOpenGLWidget):
         self.started = time.monotonic()
         self.beat_time = -100.0
         self.strength = 0.0
+        self.kick = 0.0
         self.band_levels = (0.0, 0.0)
         self.band_time = -100.0
         self.motion = [0.0, 0.0]
@@ -33,9 +35,22 @@ class Visualizer(QOpenGLWidget):
         self.flash = (0.7, 0.2, 0.8)
         self.density = 1.4
         self.speed = 1.0
+        self.frame_count = 0
+        self.frame_clock = self.started
+        self.frameSwapped.connect(self.report_fps)
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.update)
+
+    def report_fps(self):
+        self.frame_count += 1
+        now = time.monotonic()
+        elapsed = now - self.frame_clock
+        if elapsed >= 1:
+            effect = EFFECTS[getattr(self, "effect", 0)]
+            self.setWindowTitle(f"μSIK · {effect} · {self.frame_count / elapsed:.0f} FPS · F11 / Esc")
+            self.frame_clock = now
+            self.frame_count = 0
 
     def on_beat(self, strength):
         self.beat_time = time.monotonic()
@@ -45,6 +60,7 @@ class Visualizer(QOpenGLWidget):
     def reset(self):
         self.beat_time = -100.0
         self.strength = 0.0
+        self.kick = 0.0
         self.band_levels = (0.0, 0.0)
         self.motion = [0.0, 0.0]
         self.band_time = -100.0
@@ -94,7 +110,10 @@ class Visualizer(QOpenGLWidget):
         self.program["u_time"].value = now - self.started
         self.program["u_density"].value = self.density
         self.program["u_speed"].value = self.speed
-        self.program["u_pulse"].value = self.strength * math.exp(-(now - self.beat_time) * 7.0)
+        pulse = self.strength * math.exp(-(now - self.beat_time) * 7.0)
+        self.kick += (pulse-self.kick)*(1-math.exp(-dt/(.020 if pulse>self.kick else .180)))
+        self.program["u_kick"].value = self.kick
+        self.program["u_pulse"].value = pulse
         self.program["u_flash"].value = self.flash
         self.program["u_mid"].value = self.motion[0]
         self.program["u_treble"].value = self.motion[1]
@@ -102,6 +121,8 @@ class Visualizer(QOpenGLWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.frame_clock = time.monotonic()
+        self.frame_count = 0
         self.timer.start()
 
     def hideEvent(self, event):

@@ -4,7 +4,57 @@
     <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
       <option name="ignoredPackages">
         <list>
+          <option value="anitya-schema" />
+          <option value="attrs" />
+          <option value="automat" />
+          <option value="black" />
+          <option value="blinker" />
+          <option value="certifi" />
+          <option value="cffi" />
+          <option value="charset-normalizer" />
+          <option value="click" />
+          <option value="constantly" />
+          <option value="crochet" />
+          <option value="cryptography" />
+          <option value="decorator" />
+          <option value="defusedxml" />
+          <option value="fedora-messaging" />
+          <option value="fedora-messaging-the-new-hotness-schema" />
+          <option value="gssapi" />
+          <option value="hyperlink" />
+          <option value="idna" />
+          <option value="incremental" />
+          <option value="jsonschema" />
+          <option value="jsonschema-specifications" />
+          <option value="koji" />
+          <option value="mypy-extensions" />
+          <option value="packaging" />
+          <option value="pathspec" />
+          <option value="pika" />
+          <option value="pillow" />
+          <option value="platformdirs" />
+          <option value="pyasn1" />
+          <option value="pyasn1-modules" />
+          <option value="pycparser" />
           <option value="pygame" />
+          <option value="pyopenssl" />
+          <option value="python-bugzilla" />
+          <option value="python-dateutil" />
+          <option value="pytokens" />
+          <option value="redis" />
+          <option value="referencing" />
+          <option value="requests" />
+          <option value="requests-gssapi" />
+          <option value="rpds-py" />
+          <option value="service-identity" />
+          <option value="six" />
+          <option value="the-new-hotness" />
+          <option value="tomli" />
+          <option value="twisted" />
+          <option value="typing-extensions" />
+          <option value="urllib3" />
+          <option value="wrapt" />
+          <option value="zope-interface" />
         </list>
       </option>
     </inspection_tool>

@@ -39,8 +39,9 @@ class BassDetector:
             self.pending = np.empty((0, self.channels), dtype=np.float32)
             frequencies = np.fft.rfftfreq(self.window_size, 1 / rate)
             self.spectrum_edges = np.geomspace(30, min(20000, rate / 2), self.spectrum_count + 1)
-            self.spectrum_bins = [np.flatnonzero((frequencies >= lo) & (frequencies < hi))
-                                  for lo, hi in zip(self.spectrum_edges[:-1], self.spectrum_edges[1:])]
+            self.spectrum_centers = np.sqrt(self.spectrum_edges[:-1]*self.spectrum_edges[1:])
+            self.spectrum_mask = (frequencies >= self.spectrum_edges[0]) & (frequencies < self.spectrum_edges[-1])
+            self.spectrum_indices = np.searchsorted(self.spectrum_edges, frequencies[self.spectrum_mask], side="right")-1
             self.spectrum_frequencies = frequencies
             self.band = (frequencies >= 35) & (frequencies <= 180)
             self.motion_bands = ((frequencies > 180) & (frequencies < 2500),
@@ -53,10 +54,10 @@ class BassDetector:
             spectrum = np.fft.rfft(self.pending[:self.window_size] * self.window[:, None], axis=0)
             power = np.mean(np.abs(spectrum) ** 2, axis=1)
             amplitudes = 2 * np.sqrt(power) / self.window.sum()
-            centers = np.sqrt(self.spectrum_edges[:-1] * self.spectrum_edges[1:])
-            magnitudes = np.array([np.max(amplitudes[bins]) if len(bins)
-                                   else np.interp(center, self.spectrum_frequencies, amplitudes)
-                                   for bins, center in zip(self.spectrum_bins, centers)])
+            magnitudes = np.zeros(self.spectrum_count)
+            np.maximum.at(magnitudes, self.spectrum_indices, amplitudes[self.spectrum_mask])
+            empty = magnitudes == 0
+            magnitudes[empty] = np.interp(self.spectrum_centers[empty], self.spectrum_frequencies, amplitudes)
             target_spectrum = np.clip((20 * np.log10(np.maximum(magnitudes, 1e-6)) + 72) / 72, 0, 1)
             response_spectrum = np.where(target_spectrum > self.spectrum_levels, 0.025, 0.18)
             self.spectrum_levels += (target_spectrum - self.spectrum_levels) * (1 - np.exp(-self.hop / rate / response_spectrum))
@@ -106,13 +107,13 @@ class AudioAnalysis(QObject):
         self.waveform.emit(np.zeros(512, dtype=np.float32))
 
     def set_spectrum_bands(self, count):
-        count = max(16, min(128, int(count)))
+        count = max(8, min(2048, int(count)))
         if count != self.detector.spectrum_count:
             self.detector.spectrum_count = count
             self.reset()
 
     def set_phrase_bars(self, bars):
-        bars = 8 if bars == 8 else 4
+        bars = bars if bars in (2,4,8) else 4
         if bars != self.detector.phrase_bars:
             self.detector.phrase_bars = bars
             self.detector.phrase_clock.set_bars(bars)
@@ -135,7 +136,7 @@ class AudioAnalysis(QObject):
         samples = np.nan_to_num(samples.reshape(-1, fmt.channelCount()))
         self.energy.emit(float(np.clip(np.log1p(np.sqrt(np.mean(samples ** 2)) * 18) / np.log1p(0.4 * 18), 0, 1)))
         channel = int(np.argmax(np.mean(samples ** 2, axis=0)))
-        self.waveform.emit(samples[-2048:, channel].copy())
+        self.waveform.emit(samples[-4096:, channel].copy())
         for strength in self.detector.feed(samples, fmt.sampleRate()):
             self.beat.emit(strength)
         for number in self.detector.phrase_events:

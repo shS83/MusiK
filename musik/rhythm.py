@@ -5,7 +5,7 @@ from statistics import median
 
 class PhraseClock:
     def __init__(self, bars=4):
-        self.bars = 8 if bars == 8 else 4
+        self.bars = bars if bars in (2,4,8) else 4
         self.period = 0.5
         self.intervals = deque(maxlen=9)
         self.time = 0.0
@@ -16,7 +16,7 @@ class PhraseClock:
         self.silence = 0.0
 
     def set_bars(self, bars):
-        self.bars = 8 if bars == 8 else 4
+        self.bars = bars if bars in (2,4,8) else 4
         length = self.bars * 4
         self.next_boundary = (int(self.position / length) + 1) * length
 

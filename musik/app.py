@@ -7,21 +7,22 @@ import sys
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
 
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, QSize, QStandardPaths, QEvent
-from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QShortcut, QSurfaceFormat
-from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
+from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, QSize, QStandardPaths, QEvent, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPainterPath, QPixmap, QPen, QShortcut, QSurfaceFormat
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-    QSlider, QStyle, QVBoxLayout, QWidget,
+    QMenu, QStyledItemDelegate, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
+    QSlider, QVBoxLayout, QWidget,
 )
+from .audio_output import PlaybackOutput
 from .audio import AudioAnalysis
 from .library import AUDIO_FILE_FILTER, FolderScanner
 from .playlist import load_playlist, save_playlist
 from .visualizer import Visualizer
 from .effects import EffectVisualizer
 from .folders import choose_folders
-from .settings import SettingsDialog, THEMES, EFFECTS, default_store, load_settings
+from .settings import SettingsDialog, THEMES, EFFECTS, GRADIENTS, default_store, load_settings
 from .metadata import MetadataPlaylist, MetadataDialog
 import ctypes
 
@@ -38,6 +39,8 @@ QLabel#eyebrow { color: #e8c1d6; font-size: 11px; letter-spacing: 2px; }
 QLabel#track { font-size: 22px; font-weight: 600; }
 QLabel#muted { color: #e4c7d6; }
 QFrame#panel { background: rgba(23, 13, 35, 190); border: 1px solid rgba(255,255,255,28); border-radius: 18px; }
+QPushButton#transport { padding: 5px; background: rgba(32,17,46,155); border-radius: 8px; }
+QPushButton#transport:hover { background: #75426b; }
 QPushButton { background: rgba(255,255,255,17); border: 1px solid rgba(255,255,255,35); border-radius: 9px; padding: 10px 14px; }
 QPushButton:hover { background: rgba(255,255,255,38); border-color: #f7ae89; }
 QPushButton:pressed { background: #7d436f; }
@@ -56,19 +59,54 @@ QToolTip { color: #fff4ed; background: #38213e; border: 1px solid #8e5e91; }
 """
 
 
+def make_transport_icons():
+    # Use the same 34-unit outlines as the C++ player.
+    triangles = {
+        "Previous": ((24, 7), (11, 17), (24, 27)),
+        "Play": ((10, 7), (26, 17), (10, 27)),
+        "Next": ((10, 7), (23, 17), (10, 27)),
+    }
+    bars = {
+        "Previous": [(6, 7, 3, 20)], "Next": [(25, 7, 3, 20)],
+        "Pause": [(10, 7, 5, 20), (19, 7, 5, 20)], "Stop": [(9, 9, 16, 16)],
+    }
+    icons = {}
+    for name in ("Previous", "Play", "Pause", "Stop", "Next"):
+        pixmap = QPixmap(102, 102)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.scale(3, 3)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        if name in triangles:
+            first, second, third = triangles[name]
+            path.moveTo(*first)
+            path.lineTo(*second)
+            path.lineTo(*third)
+            path.closeSubpath()
+        for rect in bars.get(name, ()):
+            path.addRect(*rect)
+        painter.fillPath(path, Qt.GlobalColor.white)
+        painter.end()
+        icons[name] = QIcon(pixmap)
+    return icons
+
+
 def timestamp(ms):
     seconds = max(0, ms // 1000)
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 class Oscilloscope(QWidget):
+    mode_changed = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(115)
         self.scope_points = 512
         self.accent = "#ffc3a3"
         self.scope_background = "#20152e"
-        self.spectrum_mode = False
+        self.display_mode = 0
         self.spectrum = np.zeros(48)
         self.spectrum_max = 20000.0
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -89,7 +127,8 @@ class Oscilloscope(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.spectrum_mode = not self.spectrum_mode
+            self.display_mode = (self.display_mode + 1) % 3
+            self.mode_changed.emit(self.display_mode)
             self.update()
             event.accept()
         else:
@@ -109,16 +148,25 @@ class Oscilloscope(QWidget):
         for y in range(0, self.height(), 28):
             painter.drawLine(0, y, self.width(), y)
         painter.setPen(QColor("#e4c7d6"))
-        painter.drawText(10, 16, "SPECTRUM · click for waveform" if self.spectrum_mode
-                         else "OSCILLOSCOPE · click for spectrum")
-        if self.spectrum_mode:
+        labels = ("OSCILLOSCOPE · click for spectrum", "SPECTRUM · click for combo", "COMBO · click for oscilloscope")
+        painter.drawText(10, 16, labels[self.display_mode])
+        area_width = self.width() // 2 if self.display_mode == 2 else self.width()
+        if self.display_mode != 1:
+            self.draw_wave(painter, area_width)
+        if self.display_mode != 0:
+            if self.display_mode == 2:
+                painter.translate(area_width, 0)
+                area_width = self.width() - area_width
             left, top, bottom = 10.0, 26.0, self.height() - 22.0
-            width = max(1.0, self.width() - 20.0)
-            step = width / len(self.spectrum)
-            for i, level in enumerate(self.spectrum):
+            width = max(1.0, area_width - 20.0)
+            count = min(len(self.spectrum), max(1, int(width)))
+            starts = np.arange(count) * len(self.spectrum) // count
+            levels = np.maximum.reduceat(self.spectrum, starts)
+            step = width / count
+            for i, level in enumerate(levels):
                 height = float(np.clip(level, 0, 1)) * max(1, bottom - top)
                 painter.fillRect(QRectF(left + i * step, bottom - height,
-                                        max(1, step - 2), height), QColor(self.accent))
+                                        max(1, step - .1), height), QColor(self.accent))
             painter.setPen(QColor("#e4c7d6"))
             for frequency in (30, 100, 1000, 10000):
                 if frequency >= self.spectrum_max:
@@ -126,14 +174,15 @@ class Oscilloscope(QWidget):
                 x = left + width * np.log(frequency / 30) / np.log(self.spectrum_max / 30)
                 label = f"{frequency // 1000}k" if frequency >= 1000 else str(frequency)
                 painter.drawText(int(x), self.height() - 5, label)
-            painter.drawText(self.width() - 62, 16, "−72–0 dB")
-            painter.end()
-            return
-        count = min(len(self.samples), self.scope_points, max(2, round(self.width() * self.devicePixelRatioF())))
-        points = self.samples[np.linspace(0, len(self.samples) - 1, count).astype(int)]
+            painter.drawText(area_width - 62, 16, "−72–0 dB")
+        painter.end()
+
+    def draw_wave(self, painter, area_width):
+        count = min(len(self.samples), self.scope_points, max(2, round(area_width * self.devicePixelRatioF())))
+        points = np.interp(np.linspace(0, len(self.samples) - 1, count), np.arange(len(self.samples)), self.samples)
         path = QPainterPath()
         for i, sample in enumerate(points):
-            x = i * self.width() / max(1, count - 1)
+            x = i * area_width / max(1, count - 1)
             y = self.height() / 2 - float(np.clip(sample, -1, 1)) * self.height() * 0.43
             path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
         glow = QColor(self.accent)
@@ -142,7 +191,14 @@ class Oscilloscope(QWidget):
         painter.drawPath(path)
         painter.setPen(QPen(QColor(self.accent), 1.6))
         painter.drawPath(path)
-        painter.end()
+
+
+
+class TrackDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        playing = "▶" if index.data(Qt.UserRole + 3) else " "
+        option.text = f"{index.row()+1:3}    {playing}  {option.text}"
 
 
 class MainWindow(QMainWindow):
@@ -151,9 +207,16 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store if settings_store is not None else default_store()
         self.preferences = load_settings(self.settings_store)
         self.import_counter = 0
-        self.setWindowTitle("MusiK")
-        self.resize(900, 820)
-        self.setMinimumSize(720, 670)
+        self.shuffle_key = None
+        self.shuffle_cycle = []
+        self.shuffle_pool = []
+        self.shuffle_pool_key = None
+        self.play_history = []
+        self.history_index = -1
+        self.history_navigation = False
+        self.setWindowTitle("μSIK")
+        self.resize(1130, 820)
+        self.setMinimumSize(930, 670)
         self.setStyleSheet(STYLE)
         self.current_item = None
         self.visualizer = None
@@ -162,7 +225,7 @@ class MainWindow(QMainWindow):
         self.party_active = False
         self.party_index = self.preferences["effect"]
         self.party_timer = QTimer(self)
-        self.party_timer.setInterval(15000)
+        self.party_timer.setInterval(12000)
         self.party_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.party_timer.timeout.connect(self.advance_party)
         self.folder_scanner = None
@@ -170,15 +233,14 @@ class MainWindow(QMainWindow):
         self.player = QMediaPlayer(self)
         self.output = QAudioOutput(self)
         self.output.setVolume(0.7)
-        self.player.setAudioOutput(self.output)
-        self.buffer_output = QAudioBufferOutput(self)
-        self.player.setAudioBufferOutput(self.buffer_output)
         self.analysis = AudioAnalysis(self)
-        self.buffer_output.audioBufferReceived.connect(self.analysis.receive)
+        self.playback_output = PlaybackOutput(self.player, self.output, self.analysis, self)
+        self.playback_output.warning.connect(self.statusBar().showMessage)
         self.build_ui()
         self.analysis.waveform.connect(self.scope.set_samples)
         self.analysis.spectrum.connect(self.scope.set_spectrum)
         self.apply_settings(self.preferences, persist=False)
+        self.scope.mode_changed.connect(self.save_display_mode)
         self.player.positionChanged.connect(self.position_changed)
         self.player.durationChanged.connect(self.duration_changed)
         self.player.seekableChanged.connect(self.update_controls)
@@ -257,23 +319,26 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         title = QVBoxLayout()
         title.setSpacing(0)
-        title.addWidget(QLabel("MusiK", objectName="brand"))
+        self.brand = QLabel("μSIK", objectName="brand")
+        title.addWidget(self.brand)
+        self.hue = 0
+        self.rainbow_timer = QTimer(self)
+        self.rainbow_timer.setInterval(45)
+        self.rainbow_timer.timeout.connect(self.animate_brand)
         title.addWidget(QLabel("SOUND INTO COLOUR", objectName="eyebrow"))
         header.addLayout(title)
         header.addStretch()
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.show_settings)
-        header.addWidget(self.settings_button)
-        visual_controls = QVBoxLayout()
+
         self.party_button = QPushButton("Party Mode")
         self.party_button.setCheckable(True)
-        self.party_button.setToolTip("Cycle all visualizations every 15 seconds; click again to stop")
+        self.party_button.setToolTip("Cycle all visualizations every 12 seconds; click again to stop")
         self.party_button.toggled.connect(self.set_party_mode)
-        visual_controls.addWidget(self.party_button)
+
         self.visualize_button = QPushButton("✦  Start visualization", objectName="visualize")
         self.visualize_button.clicked.connect(self.show_visualizer)
-        visual_controls.addWidget(self.visualize_button)
-        header.addLayout(visual_controls)
+
         layout.addLayout(header)
 
         panel = QFrame(objectName="panel")
@@ -302,14 +367,21 @@ class MainWindow(QMainWindow):
         timeline.addWidget(self.duration)
         box.addLayout(timeline)
         controls = QHBoxLayout()
-        self.previous_button = self.transport_button("Previous", QStyle.StandardPixmap.SP_MediaSkipBackward, self.previous)
-        self.play_button = self.transport_button("Play", QStyle.StandardPixmap.SP_MediaPlay, self.toggle_play)
-        self.play_button.setObjectName("primary")
-        self.next_button = self.transport_button("Next", QStyle.StandardPixmap.SP_MediaSkipForward, self.next)
-        self.stop_button = self.transport_button("Stop", QStyle.StandardPixmap.SP_MediaStop, self.stop)
-        for button in (self.previous_button, self.play_button, self.next_button, self.stop_button):
-            controls.addWidget(button)
+        self.transport_icons = make_transport_icons()
+        self.previous_button = self.transport_button("Previous", self.previous)
+        self.play_button = self.transport_button("Play", self.toggle_play)
+        self.next_button = self.transport_button("Next", self.next)
+        self.stop_button = self.transport_button("Stop", self.stop)
+        for button in (self.previous_button, self.play_button, self.stop_button, self.next_button):
+            header.addWidget(button)
+        header.addWidget(self.visualize_button)
+        header.addWidget(self.party_button)
+        header.addWidget(self.settings_button)
         controls.addStretch()
+        self.mute = QPushButton("Mute")
+        self.mute.setCheckable(True)
+        self.mute.toggled.connect(self.output.setMuted)
+        controls.addWidget(self.mute)
         controls.addWidget(QLabel("Volume", objectName="muted"))
         volume = QSlider(Qt.Orientation.Horizontal)
         volume.setRange(0, 100)
@@ -318,7 +390,6 @@ class MainWindow(QMainWindow):
         volume.setAccessibleName("Volume")
         volume.valueChanged.connect(lambda value: self.output.setVolume(value / 100))
         controls.addWidget(volume)
-        box.addLayout(controls)
         layout.addWidget(panel)
 
         playlist_panel = QFrame(objectName="panel")
@@ -331,6 +402,9 @@ class MainWindow(QMainWindow):
         row.addWidget(self.count_label)
         box.addLayout(row)
         self.playlist = MetadataPlaylist()
+        self.playlist.setItemDelegate(TrackDelegate(self.playlist))
+        self.playlist.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.playlist.customContextMenuRequested.connect(self.track_menu)
         self.playlist.metadata_requested.connect(self.show_track_metadata)
         self.playlist.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.playlist.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
@@ -357,6 +431,23 @@ class MainWindow(QMainWindow):
                 self.save_button = button
         box.addLayout(row)
         layout.addWidget(playlist_panel, 1)
+        layout.addLayout(controls)
+
+    def track_menu(self, pos):
+        item = self.playlist.itemAt(pos)
+        if item is not None:
+            menu = QMenu(self.playlist)
+            details = menu.addAction("Track information")
+            if menu.exec(self.playlist.viewport().mapToGlobal(pos)) == details:
+                self.show_track_metadata(item.data(Qt.UserRole))
+
+    def animate_brand(self):
+        self.hue = (self.hue + 3) % 360
+        self.brand.setStyleSheet(f"color: hsl({self.hue}, 100%, 65%);")
+
+    def save_display_mode(self, mode):
+        self.preferences["display"] = mode
+        self.settings_store.setValue("display", mode)
 
     def show_settings(self):
         dialog = SettingsDialog(self.preferences, self)
@@ -365,7 +456,17 @@ class MainWindow(QMainWindow):
 
     def apply_settings(self, values, persist=True):
         old = self.preferences
-        self.preferences = dict(values)
+        values = dict(values)
+        if values["order"] == 4:
+            values["order"] = 0
+        self.preferences = values
+        self.playback_output.configure(values)
+        if old["playback"] != values["playback"]:
+            self.shuffle_pool = []
+            self.shuffle_pool_key = None
+            self.play_history = []
+            self.history_index = -1
+        self.scope.display_mode = values["display"]
         self.scope.scope_points = values["scope_points"]
         self.analysis.set_spectrum_bands(values["spectrum_bands"])
         self.analysis.set_phrase_bars(values["laser_bars"])
@@ -380,6 +481,14 @@ class MainWindow(QMainWindow):
                               ("#8e5e91", colors[2])):
             style = style.replace(before, after)
         style += "QDialog { background: " + colors[0] + "; } QComboBox, QSpinBox { background: #201b29; color: white; padding: 6px; }"
+        stops = GRADIENTS[values["gradient"]][1]
+        if values["gradient"] == 8:
+            stops = (values["custom_start"],values["custom_end"])
+        if stops is not None or values["reverse"]:
+            left, right = stops or (colors[0],colors[2])
+            if values["reverse"]:
+                left,right = right,left
+            style += f"QWidget#canvas {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {left},stop:1 {right}); }}"
         self.setStyleSheet(style)
         self.scope.accent = colors[3]
         self.scope.scope_background = QColor(colors[0]).darker(160).name()
@@ -398,6 +507,7 @@ class MainWindow(QMainWindow):
                 if fullscreen:
                     self.visualizer.borderless.set_active(True)
         if persist:
+            self.settings_store.setValue("effectListVersion",2)
             for key, value in values.items():
                 self.settings_store.setValue(key, value)
             self.settings_store.sync()
@@ -416,7 +526,6 @@ class MainWindow(QMainWindow):
             1: lambda item: (item.text().casefold(), item.data(Qt.ItemDataRole.UserRole).casefold()),
             2: lambda item: (item.text().casefold(), item.data(Qt.ItemDataRole.UserRole).casefold()),
             3: lambda item: item.data(Qt.ItemDataRole.UserRole).casefold(),
-            4: lambda item: item.data(Qt.ItemDataRole.UserRole + 2),
         }
         items.sort(key=keys[order], reverse=order == 2)
         self.playlist.blockSignals(True)
@@ -444,20 +553,33 @@ class MainWindow(QMainWindow):
         visual.close()
         visual.deleteLater()
         self.visualizer = None
+        self.scope.setVisible(True)
+        self.scope.timer.start()
 
-    def transport_button(self, text, icon, callback):
-        button = QPushButton(self.style().standardIcon(icon), text)
+    def transport_button(self, name, callback):
+        button = QPushButton()
+        button.setObjectName("transport")
+        button.setIcon(self.transport_icons[name])
+        button.setIconSize(QSize(26, 26))
+        button.setFixedWidth(42)
+        button.setToolTip(name)
+        button.setAccessibleName(name)
         button.clicked.connect(callback)
         return button
 
     def add_paths(self, paths, report_missing=True):
         missing = []
         added = 0
+        known = {os.path.normcase(self.playlist.item(i).data(Qt.UserRole)) for i in range(self.playlist.count())}
         for value in paths:
             path = Path(value).expanduser().resolve()
             if not path.is_file():
                 missing.append(str(value))
                 continue
+            key = os.path.normcase(str(path))
+            if key in known:
+                continue
+            known.add(key)
             item = QListWidgetItem(path.stem)
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip("")
@@ -562,9 +684,11 @@ class MainWindow(QMainWindow):
         if item is not self.current_item:
             if self.current_item is not None:
                 self.current_item.setFont(QFont())
+                self.current_item.setData(Qt.UserRole + 3, False)
             self.player.stop()
             self.analysis.reset()
             self.current_item = item
+            item.setData(Qt.UserRole + 3, True)
             font = QFont()
             font.setBold(True)
             item.setFont(font)
@@ -572,6 +696,12 @@ class MainWindow(QMainWindow):
             self.track_label.setText(item.text())
             self.track_label.setToolTip(item.data(Qt.ItemDataRole.UserRole))
         self.playlist.setCurrentItem(item)
+        if self.preferences["playback"] in (2, 4) and not self.history_navigation:
+            path = item.data(Qt.ItemDataRole.UserRole)
+            if self.history_index < 0 or self.play_history[self.history_index] != path:
+                self.play_history = self.play_history[:self.history_index + 1]
+                self.play_history.append(path)
+                self.history_index = len(self.play_history) - 1
         self.player.play()
 
     def play(self):
@@ -593,27 +723,83 @@ class MainWindow(QMainWindow):
         if self.visualizer:
             self.visualizer.reset()
 
-    def next(self):
-        if not self.playlist.count():
+    def play_adjacent(self, direction):
+        count = self.playlist.count()
+        if not count:
             return
+        mode = self.preferences["playback"]
         row = self.playlist.row(self.current_item) if self.current_item is not None else -1
-        self.play_item(self.playlist.item((row + 1) % self.playlist.count()))
+        if mode in (2, 4):
+            paths = tuple(self.playlist.item(i).data(Qt.UserRole) for i in range(count))
+            if self.shuffle_pool_key != (mode, paths):
+                self.shuffle_pool_key = (mode, paths)
+                self.shuffle_pool = []
+                # Preserve only history entries that still exist in the playlist.
+                self.play_history = [path for path in self.play_history if path in paths]
+                current_path = paths[row] if row >= 0 else None
+                if current_path in self.play_history:
+                    self.history_index = len(self.play_history) - 1 - self.play_history[::-1].index(current_path)
+                else:
+                    self.play_history = [current_path] if current_path else []
+                    self.history_index = len(self.play_history) - 1
+            target = None
+            if direction < 0:
+                if self.history_index > 0:
+                    self.history_index -= 1
+                    target = self.play_history[self.history_index]
+                else:
+                    return
+            elif self.history_index + 1 < len(self.play_history):
+                self.history_index += 1
+                target = self.play_history[self.history_index]
+            else:
+                current_path = paths[row] if row >= 0 else None
+                choices = [p for p in paths if p != current_path]
+                if not choices:
+                    target = paths[0]
+                elif mode == 4:
+                    target = random.choice(choices)
+                else:
+                    # A shuffled bag: play each track before starting a new cycle.
+                    self.shuffle_pool = [p for p in self.shuffle_pool if p in choices]
+                    if not self.shuffle_pool:
+                        self.shuffle_pool = choices.copy()
+                        random.shuffle(self.shuffle_pool)
+                    target = self.shuffle_pool.pop()
+                self.play_history = self.play_history[:self.history_index + 1]
+                self.play_history.append(target)
+                self.history_index = len(self.play_history) - 1
+            self.history_navigation = True
+            try:
+                self.play_item(self.playlist.item(paths.index(target)))
+            finally:
+                self.history_navigation = False
+            return
+        if mode == 3:
+            paths = tuple(self.playlist.item(i).data(Qt.UserRole) for i in range(count))
+            if self.shuffle_key != (mode, paths):
+                self.shuffle_key = (mode, paths)
+                groups = {}
+                for i, path in enumerate(paths):
+                    groups.setdefault(str(Path(path).parent), []).append(i)
+                blocks = list(groups.values())
+                random.shuffle(blocks)
+                self.shuffle_cycle = [i for block in blocks for i in block]
+            position = self.shuffle_cycle.index(row) if row >= 0 else -1
+            row = self.shuffle_cycle[(position + direction) % count]
+        else:
+            row = (row + direction * (-1 if mode == 1 else 1)) % count
+        self.play_item(self.playlist.item(row))
+
+    def next(self):
+        self.play_adjacent(1)
 
     def previous(self):
-        if self.player.position() > 3000:
-            self.player.setPosition(0)
-            self.analysis.reset()
-        elif self.playlist.count():
-            row = self.playlist.row(self.current_item) if self.current_item is not None else 1
-            self.play_item(self.playlist.item((row - 1) % self.playlist.count()))
+        self.play_adjacent(-1)
 
     def media_status_changed(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
-            row = self.playlist.row(self.current_item) if self.current_item is not None else -1
-            if 0 <= row < self.playlist.count() - 1:
-                self.play_item(self.playlist.item(row + 1))
-            else:
-                self.stop()
+            self.next()
         self.update_controls()
 
     def player_error(self, error, message):
@@ -643,10 +829,10 @@ class MainWindow(QMainWindow):
         self.save_button.setEnabled(count > 0)
         self.remove_button.setEnabled(bool(self.playlist.selectedItems()))
         playing = self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
-        self.play_button.setText("Pause" if playing else "Play")
-        self.play_button.setIcon(self.style().standardIcon(
-            QStyle.StandardPixmap.SP_MediaPause if playing else QStyle.StandardPixmap.SP_MediaPlay
-        ))
+        action = "Pause" if playing else "Play"
+        self.play_button.setIcon(self.transport_icons[action])
+        self.play_button.setToolTip(action)
+        self.play_button.setAccessibleName(action)
         self.stop_button.setEnabled(self.player.playbackState() != QMediaPlayer.PlaybackState.StoppedState)
         self.seek.setEnabled(self.player.isSeekable())
 
@@ -660,6 +846,7 @@ class MainWindow(QMainWindow):
         self.duration.setText(timestamp(duration))
 
     def seek_to(self):
+        self.playback_output.flush()
         self.analysis.reset()
         if self.visualizer:
             self.visualizer.reset()
@@ -685,12 +872,15 @@ class MainWindow(QMainWindow):
         self.party_button.setText("Party Mode · On" if self.party_active else "Party Mode")
         self.party_button.blockSignals(False)
         if enabled:
+            self.rainbow_timer.start()
             self.party_index = (self.visualizer_effect if self.visualizer is not None
                                 else self.preferences["effect"])
             self.show_visualizer()
             if self.party_active:
                 self.party_timer.start()
         else:
+            self.rainbow_timer.stop()
+            self.brand.setStyleSheet("")
             self.party_timer.stop()
 
     def advance_party(self):
@@ -710,6 +900,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def eventFilter(self, watched, event):
+        if watched is self.visualizer:
+            if event.type() == QEvent.Type.Show:
+                self.scope.timer.stop()
+                self.scope.setVisible(False)
+            elif event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
+                self.scope.setVisible(True)
+                self.scope.timer.start()
         if watched is self.visualizer and event.type() == QEvent.Type.Close:
             self.set_party_mode(False)
         return super().eventFilter(watched, event)
@@ -765,6 +962,7 @@ class MainWindow(QMainWindow):
                 str(exc)
             )
 
+        self.playback_output.close()
         super().closeEvent(event)
 
         self.set_party_mode(False)
@@ -812,6 +1010,7 @@ def main():
     app.setWindowIcon(icon)
 
     app.setApplicationName("MusiK")
+    app.setApplicationDisplayName("μSIK")
     app.setOrganizationName("MusiK")
     window = MainWindow()
     window.autoload_playlist()

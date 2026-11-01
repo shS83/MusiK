@@ -7,6 +7,7 @@ uniform float u_density;
 uniform float u_speed;
 uniform vec2 u_resolution;
 uniform float u_pulse;
+uniform float u_kick;
 uniform vec3 u_flash;
 uniform float u_mid;
 uniform float u_treble;
@@ -245,10 +246,18 @@ vec3 sphereNormal(vec3 q, float radius) {
 
 void main() {
     vec2 p = (gl_FragCoord.xy - u_resolution * 0.5) / u_resolution.y;
-    vec3 eye = vec3(0.0, 2.0, 7.0);
-    vec3 forward = normalize(vec3(0.0, -0.12, -1.0));
-    vec3 right = vec3(1.0, 0.0, 0.0);
-    vec3 up = cross(right, forward);
+    // Orbit around the fixed center of the chrome sphere.
+    // A full revolution takes about 52 seconds at 0.12 rad/s.
+    float orbitAngle = u_time * 0.12;
+    float orbitRadius = 7.0;
+    vec3 target = vec3(0.0, 1.38, 0.0);
+    vec3 eye = vec3(sin(orbitAngle) * orbitRadius,
+                    2.0,
+                    cos(orbitAngle) * orbitRadius);
+    vec3 forward = normalize(target - eye);
+    vec3 worldUp = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(forward, worldUp));
+    vec3 up = normalize(cross(right, forward));
     vec3 ray = normalize(forward * 1.45 + right * p.x * 2.0 + up * p.y * 2.0);
     vec3 color = sky(ray);
     float distanceToEye = 1000.0;
@@ -257,9 +266,9 @@ void main() {
         color = floorColor(eye + ray * distanceToEye, distanceToEye);
     }
 
-    // float radius = 1.0 + u_pulse * 0.20;
-    float radius = 1.0 + u_pulse * 0.025;
-    vec3 center = vec3(0.0, 1.38, -u_pulse * 0.06);
+    float kick = clamp(u_kick, 0.0, 1.0);
+    float radius = 1.0 + kick * 0.045;
+    vec3 center = target + normalize(eye - target) * kick * 0.12;
     vec3 oc = eye - center;
     float b = dot(oc, ray);
     float bound = radius + 0.11 * u_mid + spikeHeight();

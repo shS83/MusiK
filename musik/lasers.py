@@ -7,7 +7,7 @@ import math
 import random
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap, QTransform
+from PySide6.QtGui import QColor, QLinearGradient, QFont, QPainter, QPainterPath, QPixmap, QTransform
 
 
 def edge_position(distance, width, height):
@@ -27,14 +27,17 @@ class LaserScene:
     def __init__(self, variant):
         self.variant = variant
         self.rng = random.Random(8100 + variant)
-        self.rays = (5, 15, 14, 15, 28)[variant]
-        self.per_ray = (32, 48, 48, 72, 64)[variant]
-        self.glyph = ("•", "•", "?", "O", "´")[variant]
-        self.font_size = (12, 12, 27, 18, 30)[variant]
+        self.rays = (5, 15, 14, 15, 36)[variant]
+        self.per_ray = (32, 48, 48, 180, 150)[variant]
+        self.glyph = ("•", "•", "?", "O", "´ ")[variant]
+        self.font_size = (12, 12, 27, 18, 36)[variant]
         self.spin = self.spin_target = (1., 1., 2.3, 4.3, 2.3)[variant]
         self.phase = self.orbit = self.distance = self.elapsed = self.emission = 0.0
-        self.color = QColor("#e355ff")
-        self.next_color = QColor("#45ddff")
+        self.palette = [QColor(code) for code in ("#ff0000","#800080","#ffff00","#00ff00","#0000ff","#00ffff","#ff00ff","#808000","#008080","#ff8080","#800000","#808080","#ffffff","#80ff80","#ff80ff","#80ffff")]
+        self.palette_index = 0
+        self.palette_time = self.beats = 0
+        self.color = self.palette[0]
+        self.next_color = self.palette[1]
         self.color_mix = 0.0
         self.cache = []
         self.cache_key = None
@@ -44,17 +47,27 @@ class LaserScene:
         self.changes = 0
 
     def change_phrase(self, number=0):
+        if self.variant == 4:
+            return
         self.changes += 1
         counts = (5, 8, 12, 16) if self.variant < 2 else (8, 12, 16, 20, 28)
         self.rays = self.rng.choice([count for count in counts if count != self.rays])
         self.per_ray = self.rng.choice([count for count in (24, 36, 48, 64, 80) if count != self.per_ray])
         self.spin_target = self.rng.choice((-1, 1)) * self.rng.uniform(.7, 4.8)
-        if self.variant >= 2:
-            self.glyph = self.rng.choice([char for char in "|S?OX+*<>0123§Ω" if char != self.glyph])
-            self.font_size = self.rng.choice((16, 20, 24, 28))
+        self.advance_palette()
+
+    def advance_palette(self):
+        self.palette_time = 0
         self.color = self.current_color()
-        self.next_color = QColor.fromHsv(self.rng.randrange(360), 190, 255)
-        self.color_mix = 0.0
+        self.palette_index = (self.palette_index + 1) % len(self.palette)
+        self.next_color = self.palette[self.palette_index]
+        self.color_mix = 0
+
+    def on_beat(self, bars):
+        self.beats += 1
+        if self.beats >= bars * 4:
+            self.beats = 0
+            self.advance_palette()
 
     def current_color(self):
         t = self.color_mix * self.color_mix * (3 - 2 * self.color_mix)
@@ -98,13 +111,16 @@ class LaserScene:
             self.reset()
             self.size = (width, height)
         self.elapsed += dt
+        self.palette_time += dt
+        if self.palette_time >= 8:
+            self.advance_palette()
         self.spin += (self.spin_target - self.spin) * (1 - math.exp(-dt / .4))
         drive = .08 + 1.1 * energy + .45 * mid + .30 * treble
-        self.phase += dt * self.spin * drive
-        self.orbit += dt * self.spin * (.025 + .55 * energy + .25 * mid)
-        self.distance += dt * (8 + 180 * energy + 60 * pulse)
+        self.phase += dt * self.spin * (1 if self.variant == 4 else drive)
+        self.orbit += dt * (.65 if self.variant == 4 else self.spin * (.025 + .55 * energy + .25 * mid))
+        self.distance += dt * (180 if self.variant == 4 else 8 + 180 * energy + 60 * pulse)
         self.color_mix = min(1, self.color_mix + dt * .5)
-        radius = min(width, height) * (.23 if self.variant == 2 else .085)
+        radius = 50 * min(width/800,height/600) if self.variant == 4 else min(width,height)*.085
         target = (width / 2 + radius * math.cos(self.orbit), height / 2 + radius * math.sin(self.orbit))
         perimeter = 2 * (width - 20 + height - 20)
         layer = QPixmap(width, height)
@@ -112,26 +128,29 @@ class LaserScene:
         painter = QPainter(layer)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.variant < 2:
-            self.emission += dt * (8 + 24 * energy + 16 * pulse)
-            while self.emission >= 1:
-                self.emission -= 1
-                for ray in range(self.rays):
-                    start = edge_position(ray * perimeter / self.rays + self.distance, width, height)
-                    self.particles.append([start, target, 0.0])
-            alive = []
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(Qt.GlobalColor.white)
-            for particle in self.particles:
-                particle[2] += dt * (.25 + .85 * energy + .25 * treble)
-                if particle[2] >= 1:
-                    continue
-                start, captured, progress = particle
-                end = captured if self.variant == 0 else target
-                x = start[0] + (end[0] - start[0]) * progress
-                y = start[1] + (end[1] - start[1]) * progress
-                painter.drawEllipse(QPointF(x, y), 2.1 + pulse, 2.1 + pulse)
-                alive.append(particle)
-            self.particles = alive[-2000:]
+            for ray in range(48):
+                angle = math.tau*ray/48 + self.phase*.09
+                dx, dy = math.cos(angle), math.sin(angle)
+                length = math.hypot(width,height)
+                points = []
+                for k in range(45):
+                    t = k/44
+                    taper = t**.62
+                    wiggle = math.sin(t*8+self.phase*.48+ray*.28)*16*taper*(.35+mid)
+                    half = (2.4+19*taper)*(1+pulse*.14)
+                    x,y = target[0]+dx*length*t,target[1]+dy*length*t
+                    points.append((QPointF(x-dy*(wiggle+half), y+dx*(wiggle+half)),
+                                   QPointF(x-dy*(wiggle-half), y+dx*(wiggle-half))))
+                path = QPainterPath(points[0][0])
+                for left,_ in points[1:]:
+                    path.lineTo(left)
+                for _,right in reversed(points):
+                    path.lineTo(right)
+                path.closeSubpath()
+                gradient = QLinearGradient(QPointF(*target),QPointF(target[0]+dx*length,target[1]+dy*length))
+                for stop,alpha in ((0,245),(.55,175),(1,105)):
+                    gradient.setColorAt(stop,QColor(255,255,255,alpha))
+                painter.fillPath(path,gradient)
         else:
             self.build_cache()
             for ray in range(self.rays):
@@ -142,19 +161,22 @@ class LaserScene:
                     x, y = sx + (target[0] - sx) * t, sy + (target[1] - sy) * t
                     wave = self.phase - j * .32 + ray * .24
                     angle = base + (math.sin(wave) * 1.05 if self.variant == 2 else wave)
+                    if self.variant == 3:
+                        x += math.sin(self.elapsed*2.1+j*.10+ray)*mid*11
+                        y += math.cos(self.elapsed*1.7+j*.13+ray)*treble*9
                     glyph = self.cache[round(angle / math.tau * 72) % 72]
                     painter.drawPixmap(round(x - glyph.width() / 2), round(y - glyph.height() / 2), glyph)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
         painter.fillRect(layer.rect(), self.current_color())
         painter.end()
-        if self.variant in (0, 1, 4):
+        if self.variant == 4:
             if self.trails is None:
                 self.trails = QPixmap(width, height)
                 self.trails.fill(Qt.GlobalColor.transparent)
             painter = QPainter(self.trails)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
             painter.fillRect(self.trails.rect(), QColor(255, 255, 255, round(255 * .5 ** (dt / .15))))
-            if self.variant < 2:
+            if self.variant == 4:
                 painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
                 painter.fillRect(self.trails.rect(), self.current_color())
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
@@ -169,7 +191,4 @@ class LaserScene:
         painter.fillRect(widget.rect(), Qt.GlobalColor.black)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(QRectF(widget.rect()), frame, QRectF(frame.rect()))
-        # Flash is a final overlay, never baked into the trail feedback image.
-        if pulse > .001:
-            painter.fillRect(widget.rect(), QColor(255, 255, 255, round(190 * min(1, pulse))))
         painter.end()

@@ -9,69 +9,42 @@ from PySide6.QtGui import QImage, QImageReader, QPixmap
 from PySide6.QtMultimedia import QMediaMetaData, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFormLayout, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget, QMenu,
 )
 
 
 class MetadataPlaylist(QListWidget):
+    """Right-click a playlist entry to open a small metadata context menu."""
+
     metadata_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMouseTracking(True)
-        self.hover_index = QPersistentModelIndex()
-        self.hover_position = None
-        self.last_opened_path = None
         self.metadata_open = False
-        self.hover_timer = QTimer(self)
-        self.hover_timer.setSingleShot(True)
-        self.hover_timer.setInterval(2000)
-        self.hover_timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.hover_timer.timeout.connect(self.open_hovered)
-        self.verticalScrollBar().valueChanged.connect(self.cancel_hover)
-        self.horizontalScrollBar().valueChanged.connect(self.cancel_hover)
-        self.model().rowsAboutToBeRemoved.connect(self.cancel_hover)
-        self.model().modelAboutToBeReset.connect(self.cancel_hover)
 
     def cancel_hover(self, *args):
-        self.hover_timer.stop()
-        self.hover_index = QPersistentModelIndex()
+        """Compatibility with existing app.py cleanup calls; no hover timer."""
+        pass
 
-    def mouseMoveEvent(self, event):
-        super().mouseMoveEvent(event)
-        index = self.indexAt(event.position().toPoint())
-        path = index.data(Qt.ItemDataRole.UserRole) if index.isValid() else None
-        if path != self.last_opened_path:
-            self.last_opened_path = None
-        if (self.metadata_open or event.buttons() != Qt.MouseButton.NoButton
-                or path is None or path == self.last_opened_path):
-            self.cancel_hover()
+    def contextMenuEvent(self, event):
+        item = self.itemAt(event.pos())
+        if item is None:
+            event.ignore()
             return
-        if index != self.hover_index:
-            self.hover_index = QPersistentModelIndex(index)
-            self.hover_position = event.position().toPoint()
-            self.hover_timer.start()
 
-    def viewportEvent(self, event):
-        if event.type() in (QEvent.Type.Leave, QEvent.Type.MouseButtonPress,
-                            QEvent.Type.Wheel, QEvent.Type.Hide):
-            self.cancel_hover()
-            if event.type() == QEvent.Type.Leave and not self.metadata_open:
-                self.last_opened_path = None
-        return super().viewportEvent(event)
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if not path:
+            event.ignore()
+            return
 
-    def open_hovered(self):
-        if (not self.hover_index.isValid() or self.metadata_open or not self.isVisible()
-                or QApplication.activeModalWidget() is not None
-                or QApplication.mouseButtons() != Qt.MouseButton.NoButton):
-            return
-        if self.indexAt(self.hover_position) != QModelIndex(self.hover_index):
-            return
-        path = self.hover_index.data(Qt.ItemDataRole.UserRole)
-        self.last_opened_path = path
-        self.metadata_open = True
-        self.cancel_hover()
-        self.metadata_requested.emit(path)
+        menu = QMenu(self)
+        metadata_action = menu.addAction("Metadata")
+        metadata_action.setEnabled(not self.metadata_open)
+
+        selected = menu.exec(event.globalPos())
+        if selected is metadata_action and not self.metadata_open:
+            self.metadata_requested.emit(str(path))
+        event.accept()
 
 
 def folder_art(path):

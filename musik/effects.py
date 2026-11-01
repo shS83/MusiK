@@ -11,7 +11,9 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from .visualizer import Visualizer
 from .settings import EFFECTS
 from .lasers import LaserScene
-
+from .biolume import Biolume
+from .fireworks import Fireworks
+from .fireworks_debug import FireworksDebug
 
 class MusicMotion:
     """Integrate velocity so changes of loudness never jump animation time."""
@@ -44,8 +46,9 @@ class EffectVisualizer(Visualizer):
     def __init__(self, effect, parent=None):
         super().__init__(parent)
         self.effect = effect
-        self.lasers = LaserScene(effect - 4) if effect >= 4 else None
-        self.setWindowTitle(f"MusiK · {EFFECTS[effect]} · F11 fullscreen · Esc close")
+        self.lasers = LaserScene((1,3,4)[effect-4]) if 4 <= effect <= 6 else None
+        self.bio = self.fire = None
+        self.setWindowTitle(f"μSIK · {EFFECTS[effect]} · F11 fullscreen · Esc close")
         self.dynamics = MusicMotion()
         self.energy_level = 0.0
         self.energy_time = -100.0
@@ -56,12 +59,18 @@ class EffectVisualizer(Visualizer):
         self.matrix_clock = 0.0
         self.glyphs = []
         self.streams = []
+        self.fireworks_debug = None
         self.rng = random.Random(1731)
         if effect == 3:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def on_phrase(self, number):
+    def on_beat(self, strength):
+        super().on_beat(strength)
         if self.lasers is not None:
+            self.lasers.on_beat(self.parent().preferences["laser_bars"] if self.parent() else 4)
+
+    def on_phrase(self, number):
+        if self.lasers is not None and self.parent() and self.parent().party_active:
             self.lasers.change_phrase(number)
 
     def on_energy(self, level):
@@ -78,7 +87,7 @@ class EffectVisualizer(Visualizer):
 
     def initializeGL(self):
         try:
-            if self.effect in (1, 2):
+            if self.effect in (1, 2, 7, 8):
                 self.ctx = moderngl.create_context(require=330)
                 folder = Path(__file__).resolve().parent.parent / "shaders"
                 vertex = (folder / "scene.vert").read_text()
@@ -87,7 +96,13 @@ class EffectVisualizer(Visualizer):
                     vao = self.ctx.vertex_array(result, [])
                     self.resources.extend((vao, result))
                     return result, vao
-                if self.effect == 1:
+                if self.effect == 7:
+                    self.program, self.vao = program("biolume.frag")
+                elif self.effect == 8:
+                    self.fire = Fireworks(self.ctx, folder)
+                    self.fireworks_debug = FireworksDebug(self, self.fire)
+                    self.resources.extend((self.fire.vao, self.fire.buffer, self.fire.program))
+                elif self.effect == 1:
                     self.program, self.vao = program("tunnel.frag")
                 else:
                     self.cube_program, self.cube_vao = program("hiss_scene.frag")
@@ -127,6 +142,21 @@ class EffectVisualizer(Visualizer):
         framebuffer.use()
         self.ctx.viewport = (0, 0, *size)
         self.ctx.disable(moderngl.DEPTH_TEST | moderngl.BLEND)
+        if self.effect == 8:
+            self.fire.draw(dt, self.width(), self.height(), ratio, energy)
+            return
+        if self.effect == 7:
+            aspect = size[0]/size[1]
+            if self.bio is None:
+                self.bio = Biolume(aspect)
+            self.bio.step(dt, aspect, energy, treble, pulse)
+            self.bio.upload(self.program)
+            for name, value in (("u_resolution",size),("u_time",now-self.started),("u_bass",energy),
+                                ("u_treble",treble),("u_pulse",pulse)):
+                if name in self.program:
+                    self.program[name].value = value
+            self.vao.render(moderngl.TRIANGLES, vertices=3)
+            return
         if self.effect == 1:
             phase = self.dynamics.phase
             values = {
@@ -155,9 +185,9 @@ class EffectVisualizer(Visualizer):
             framebuffer.use()
             self.source_texture.use(0)
             values = {"source": 0, "resolution": size, "time": self.dynamics.phase,
-                      "strength": .035 + .24 * self.dynamics.energy + .12 * mid + .10 * pulse,
-                      "dispersion": .025 + .20 * treble + .10 * pulse,
-                      "turbulence": .25 + .5 * treble}
+                      "strength": .07 + .46 * self.dynamics.energy + .26 * mid + .22 * pulse,
+                      "dispersion": .08 + .46 * treble + .24 * pulse,
+                      "turbulence": .48 + 1.2 * treble}
             for name, value in values.items():
                 self.program[name].value = value
             self.vao.render(mode=moderngl.TRIANGLES, vertices=3)

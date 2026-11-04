@@ -1,5 +1,0 @@
-C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/CMakeFiles/MusiKCpp.dir
-C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/CMakeFiles/edit_cache.dir
-C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/CMakeFiles/rebuild_cache.dir
-C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/CMakeFiles/MusiKCpp_autogen_timestamp_deps.dir
-C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/CMakeFiles/MusiKCpp_autogen.dir

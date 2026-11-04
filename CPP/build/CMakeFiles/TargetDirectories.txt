@@ -1,5 +1,0 @@
-/mnt/c/Users/shsis/OneDrive/Code/MusiK/CPP/build/CMakeFiles/MusiKCpp.dir
-/mnt/c/Users/shsis/OneDrive/Code/MusiK/CPP/build/CMakeFiles/edit_cache.dir
-/mnt/c/Users/shsis/OneDrive/Code/MusiK/CPP/build/CMakeFiles/rebuild_cache.dir
-/mnt/c/Users/shsis/OneDrive/Code/MusiK/CPP/build/CMakeFiles/MusiKCpp_autogen_timestamp_deps.dir
-/mnt/c/Users/shsis/OneDrive/Code/MusiK/CPP/build/CMakeFiles/MusiKCpp_autogen.dir

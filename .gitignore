@@ -3,3 +3,7 @@ env
 .venv/
 __pycache__/
 *.py[cod]
+build
+build-win
+build-win-mingw
+build*

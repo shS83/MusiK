@@ -12,7 +12,7 @@ Based on the supplied `musik.zip` (30 October 2026).
 - C++ Matrixia: freshly generated glyphs stay fixed at their cell, head is white and trail fades. Color switching by mouse click.
 - FPS shown in visualization window title (approximate rendering FPS).
 
-## Not yet included
+7## Not yet included
 
 - Laser Nexus / Orbit Streams / Glyph Waves / Glyph Spin / Glyph Trails (five laser effects).
 - Original precise FFT spectrum/beat analysis, oscilloscope, metadata popup, settings dialog, original full UI and all themes.
@@ -24,8 +24,14 @@ Based on the supplied `musik.zip` (30 October 2026).
 Install Qt **6.8+** (MSVC kit: Widgets, Multimedia, OpenGLWidgets, OpenGL) and CMake, then from a developer command prompt with Qt visible to CMake:
 
 ```bat
-cmake -S . -B build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/msvc2022_64"
+cmake -S . -B build -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64"
 cmake --build build --config Release
+```
+
+OR... use the supplied ./build-win.ps1, which presumes you have Ninja and MINGW.
+
+```
+.\build-win.ps1
 ```
 
 Replace the example Qt path with your installed version. With MSVC, run Qt `windeployqt` on `build/Release/MusiKCpp.exe` for a self-contained app and make sure `shaders/` is next to the executable. FFmpeg/Qt multimedia plugins must be deployed for audio.
@@ -37,6 +43,11 @@ sudo pacman -S cmake ninja gcc qt6-base qt6-multimedia
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/MusiKCpp
+```
+Also works plainly:
+
+```
+./build-linux.sh
 ```
 
 Requires Qt Multimedia with QAudioBufferOutput (Qt 6.8+). `shaders/` and `MusiK-logo.png` are copied beside the binary automatically.

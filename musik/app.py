@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPainter
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QMenu, QStyledItemDelegate, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
+    QMenu, QLineEdit, QStyledItemDelegate, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
     QSlider, QVBoxLayout, QWidget,
 )
 from .audio_output import PlaybackOutput
@@ -215,8 +215,8 @@ class MainWindow(QMainWindow):
         self.history_index = -1
         self.history_navigation = False
         self.setWindowTitle("μSIK")
-        self.resize(1130, 820)
-        self.setMinimumSize(930, 670)
+        self.resize(1130, 870)
+        self.setMinimumSize(930, 720)
         self.setStyleSheet(STYLE)
         self.current_item = None
         self.visualizer = None
@@ -378,9 +378,12 @@ class MainWindow(QMainWindow):
         header.addWidget(self.party_button)
         header.addWidget(self.settings_button)
         controls.addStretch()
-        self.mute = QPushButton("Mute")
+        self.mute = QPushButton()
         self.mute.setCheckable(True)
+        self.mute.setIconSize(QSize(28, 28))
         self.mute.toggled.connect(self.output.setMuted)
+        self.output.mutedChanged.connect(self.update_mute_button)
+        self.update_mute_button(self.output.isMuted())
         controls.addWidget(self.mute)
         controls.addWidget(QLabel("Volume", objectName="muted"))
         volume = QSlider(Qt.Orientation.Horizontal)
@@ -430,8 +433,41 @@ class MainWindow(QMainWindow):
             if text.startswith("Save"):
                 self.save_button = button
         box.addLayout(row)
+        search_row = QHBoxLayout()
+        prompt = QLabel(">")
+        prompt.setStyleSheet("color:white; font-size:24px; font-weight:900;")
+        self.search = QLineEdit(objectName="fzfSearch")
+        self.search.setPlaceholderText("Search playlist by filename or folder (Esc clears)")
+        self.search.setClearButtonEnabled(True)
+        self.search.setStyleSheet("color:white; background:#211829; border:1px solid #79508e;"
+                                  "border-radius:8px; padding:8px;")
+        self.search_terms = []
+        self.search.textChanged.connect(self.filter_playlist)
+        self.search.returnPressed.connect(self.play_first_match)
+        clear_search = QShortcut(QKeySequence(Qt.Key_Escape), self.search)
+        clear_search.setContext(Qt.WidgetShortcut)
+        clear_search.activated.connect(self.search.clear)
+        search_row.addWidget(prompt)
+        search_row.addWidget(self.search, 1)
+        box.addLayout(search_row)
         layout.addWidget(playlist_panel, 1)
         layout.addLayout(controls)
+
+    def filter_playlist(self, text):
+        self.search_terms = text.casefold().split()
+        for row in range(self.playlist.count()):
+            self.filter_track(self.playlist.item(row))
+
+    def filter_track(self, item):
+        path = item.data(Qt.UserRole).casefold()
+        item.setHidden(not all(term in path for term in self.search_terms))
+
+    def play_first_match(self):
+        for row in range(self.playlist.count()):
+            item = self.playlist.item(row)
+            if not item.isHidden():
+                self.play_item(item)
+                return
 
     def track_menu(self, pos):
         item = self.playlist.itemAt(pos)
@@ -534,6 +570,7 @@ class MainWindow(QMainWindow):
                 self.playlist.takeItem(0)
             for item in items:
                 self.playlist.addItem(item)
+                self.filter_track(item)
             if current is not None:
                 self.playlist.setCurrentItem(current)
             self.playlist.clearSelection()
@@ -555,6 +592,27 @@ class MainWindow(QMainWindow):
         self.visualizer = None
         self.scope.setVisible(True)
         self.scope.timer.start()
+
+    def update_mute_button(self, muted):
+        pixmap = QPixmap(108, 108)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.scale(3, 3)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(Qt.GlobalColor.white, 3, Qt.PenStyle.SolidLine,
+                            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawArc(QRectF(7, 5, 22, 25), 0, 180 * 16)
+        painter.drawRoundedRect(QRectF(5, 18, 6, 12), 2, 2)
+        painter.drawRoundedRect(QRectF(25, 18, 6, 12), 2, 2)
+        if muted:
+            painter.setPen(QPen(QColor("#ff354c"), 3))
+            painter.drawLine(5, 31, 31, 5)
+        painter.end()
+        self.mute.setChecked(muted)
+        self.mute.setIcon(QIcon(pixmap))
+        action = "Unmute" if muted else "Mute"
+        self.mute.setToolTip(action)
+        self.mute.setAccessibleName(action)
 
     def transport_button(self, name, callback):
         button = QPushButton()
@@ -587,6 +645,7 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole + 2, random.random())
             self.import_counter += 1
             self.playlist.addItem(item)
+            self.filter_track(item)
             added += 1
         self.sort_playlist()
         if self.playlist.currentRow() < 0 and self.playlist.count():

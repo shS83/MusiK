@@ -1,0 +1,22 @@
+# ninja log v6
+29	188	8155041210013436	MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+29	188	8155041210013436	MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+191	10855	8155041211629923	CMakeFiles/MusiKCpp.dir/src/main.cpp.obj	4f719293a7d99085
+29	188	8155041210013436	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+29	188	8155041210013436	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+322	401	8155031903974542	CMakeFiles/MusiKCpp.dir/MusiKCpp_autogen/mocs_compilation.cpp.obj	cbbca9b6697b3550
+26	399	8155042129711668	MusiKCpp.exe	7633a15333e89601
+23	951	8155051455615281	build.ninja	ca9454692f536ba9
+48	290	8155051456505813	MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+48	290	8155051456505813	MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+48	290	8155051456505813	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+48	290	8155051456505813	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+293	369	8155051458953380	CMakeFiles/MusiKCpp.dir/MusiKCpp_autogen/mocs_compilation.cpp.obj	e5caf6186dea4641
+299	13147	8155051459024484	CMakeFiles/MusiKCpp.dir/src/main.cpp.obj	ed43dc0a859b6f3f
+27	420	8155051794687749	MusiKCpp.exe	1df2c9711cff0293
+35	212	8155053029593270	MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+35	212	8155053029593270	MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+35	212	8155053029593270	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/timestamp	c0178cb8a114e55c
+35	212	8155053029593270	C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win-mingw/MusiKCpp_autogen/mocs_compilation.cpp	c0178cb8a114e55c
+216	13539	8155053031403883	CMakeFiles/MusiKCpp.dir/src/main.cpp.obj	ed43dc0a859b6f3f
+13539	15825	8155053164640141	MusiKCpp.exe	1df2c9711cff0293

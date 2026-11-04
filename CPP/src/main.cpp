@@ -1,3 +1,6 @@
+#include <QTabWidget>
+#include "audio_output.h"
+#include <QToolTip>
 #include <QApplication>
 #include <QMainWindow>
 #include <QOpenGLWidget>
@@ -53,7 +56,7 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QDialog>
-#include <QTextEdit>
+#include "track_information.h"
 #include <QFont>
 #include <QPointer>
 #include <QGraphicsDropShadowEffect>
@@ -205,7 +208,7 @@ class Visual : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core {
     struct FireRocket{QVector2D pos,vel,start;QColor color;float fuse=0,gravity=190.f,hover=0.f;bool hoverAtApex=false,waiting=false,active=false,finale=false;int style=0;};
     struct FireSpark{QVector2D pos,vel;QColor color;float life=0,maxLife=1,size=2,drag=.98f,angle=0,rotation=0,gravity=70;int shape=0;bool active=false;};
     struct CrackleBurst{QVector2D pos,vel;QColor color;float delay=0;};
-    struct FireRing{QVector2D center;QColor color;float age=0,duration=1,maxRx=0,maxRy=0;bool active=false;};
+    struct Comet { QVector2D origin, velocity; QColor color; float start, scale; };
 public:
     explicit Visual(QWidget *p=nullptr):QOpenGLWidget(p),rng(1731) {
         setWindowFlag(Qt::Window,true); resize(1280,720);
@@ -319,6 +322,18 @@ protected:
         QTimer::singleShot(250, this, [this](){ printDisplayMode(borderless ? "after borderless" : "after restore"); });
     }
     void keyPressEvent(QKeyEvent *e) override {
+        if(effect==8 && (e->key()==Qt::Key_section || e->text()==QStringLiteral("§"))){
+            fireworksDebug=!fireworksDebug;
+            QToolTip::showText(mapToGlobal(QPoint(width()/2,28)),fireworksDebug?"DEBUG MODE ON":"DEBUG MODE OFF",this);
+            e->accept();return;
+        }
+        if(effect==8 && fireworksDebug && e->key()>=Qt::Key_1 && e->key()<=Qt::Key_9){
+            if(!fireworksReady)resetFireworks();
+            FireRocket rocket;
+            rocket.pos={bioRand(.28f,.72f)*width(),bioRand(.20f,.45f)*height()};
+            rocket.color=fireworksColor();rocket.finale=e->key()==Qt::Key_6;
+            explodeRocket(rocket,e->key()-Qt::Key_0);update();e->accept();return;
+        }
         if(e->key()==Qt::Key_F11){toggleBorderless();e->accept();return;}
         if(e->key()==Qt::Key_Escape){if(borderless)toggleBorderless();else close();e->accept();return;}
         QOpenGLWidget::keyPressEvent(e);
@@ -522,7 +537,7 @@ protected:
         for(auto &r:fwRockets)r.active=false;
         for(auto &s:fwSparks)s.active=false;
         fireworksReady=true;fireSpawnTimer=1.0f;fireSeconds=0;
-        fireParticleCursor=0;fireCrackles.clear();
+        fireParticleCursor=0;fireLaunchCount=0;fireCrackles.clear();comets.clear();
     }
     FireSpark *freeSpark(){
         // Circular allocator avoids O(pool size) searches for each of ~1500 particles.
@@ -546,18 +561,23 @@ protected:
             float angle=bioRand(0.f,2.f*float(pi));float velocity=bioRand(35.f,160.f);
             s->active=true;s->pos=point;
             s->vel=QVector2D(std::cos(angle)*velocity,std::sin(angle)*velocity);
-            s->color=(j%3==0)?QColor("#ffffff"):(j%3==1?QColor("#fff2c0"):color);
-            s->life=s->maxLife=bioRand(.24f,.70f);
+            s->color=color;
+            s->life=s->maxLife=(j%3==0 ? bioRand(2.1f,3.5f) : bioRand(.85f,1.6f));
             s->size=(j%4==0)?1.f:bioRand(.8f,1.7f);
-            s->drag=.95f;s->gravity=35.f;s->shape=0;s->angle=0;s->rotation=0;
+            s->drag=.95f;s->gravity=35.f;s->shape=j%3==0?3:2;
+            s->angle=bioRand(0.f,6.28f);s->rotation=bioRand(-5.5f,5.5f);
         }
     }
-    void explodeRocket(const FireRocket &rocket){
+    void explodeRocket(const FireRocket &rocket, int preset=0){
         // ~10x v0.2: dense, mostly 1px pinpoints and only occasional larger glows.
-        const int n=(rocket.finale?2300:1300)+int(rng()%(rocket.finale?500:400));
+        const bool crackles=preset ? preset==7 || preset==9 : bioRand(0,1)<.25f;
+        const int pattern=preset ? (preset==8?5:(preset>=2 && preset<=5?preset:0))
+                                 : (bioRand(0,1)<.26f?2+int(rng()%4):0);
+        const float density=preset==8?0.f:pattern?.55f:preset==7?.38f:1.f;
+        const int baseCount=(rocket.finale?2300:1300)+int(rng()%(rocket.finale?500:400));
         const float scale=std::clamp(std::min(width()/1280.f,height()/720.f),.80f,2.3f);
         const float velocity=340.f*scale*(1.f+.28f*sound.energy);
-        for(int i=0;i<n;i++){
+        for(int i=0;i<int(baseCount*density);i++){
             auto *s=freeSpark();if(!s)break;
             // Volumetric burst: random angles and a strongly center-weighted
             // radial velocity distribution. No hard minimum-power shell.
@@ -590,15 +610,43 @@ protected:
             s->angle=bioRand(0.f,2.f*float(pi));
             s->rotation=(rng()%2?-1.f:1.f)*bioRand(1.5f,5.5f);
         }
+        if(pattern) emitPattern(rocket,scale,velocity*(310.f/340.f),pattern);
+        if(!crackles)return;
         // Visible secondary crackling AFTER the main explosion has expanded.
-        for(int j=0;j<15;j++){
+        for(int j=0;j<8;j++){
             float angle=bioRand(0.f,2.f*float(pi));
             float offset=bioRand(25.f,90.f)*scale;
             CrackleBurst c;
             c.pos=rocket.pos+QVector2D(std::cos(angle)*offset,std::sin(angle)*offset);
             c.vel=QVector2D(std::cos(angle)*bioRand(75,150),std::sin(angle)*bioRand(75,150));
-            c.color=rocket.color;c.delay=bioRand(.30f,1.15f);
+            static const QColor colors[]={Qt::white,QColor("#ff382e"),QColor("#ffd114"),QColor("#2e7aff"),QColor("#33ff52")};
+            c.color=colors[rng()%5];c.delay=bioRand(.30f,1.15f);
             fireCrackles.push_back(c);
+        }
+    }
+    void emitPattern(const FireRocket &rocket,float scale,float speed,int pattern){
+        const int count=pattern==5?6+int(rng()%7):66+int(rng()%33);
+        const float phase=bioRand(0,2*pi), tilt=bioRand(.12f,.42f)*(rng()%2?1:-1);
+        const float flatten=pattern==4?bioRand(.72f,.94f):bioRand(.25f,.47f);
+        const float inner=bioRand(.52f,.69f);
+        const int petals=4+int(rng()%4);
+        for(int i=0;i<count;++i){
+            const float a=phase+2*pi*i/count;
+            QVector2D direction(std::cos(a),std::sin(a));
+            if(pattern==5){
+                comets.push_back({rocket.pos,direction*speed*bioRand(.84f,1.15f),rocket.color,fireSeconds,scale});
+                continue;
+            }
+            auto *spark=freeSpark();
+            if(!spark)break;
+            float x=direction.x(),y=direction.y()*flatten;
+            float radius=pattern==4?.72f+.28f*std::cos(petals*a):(pattern==3 && i%2==0?inner:1.f);
+            spark->pos=rocket.pos;
+            spark->vel=QVector2D(x*std::cos(tilt)-y*std::sin(tilt),x*std::sin(tilt)+y*std::cos(tilt))
+                       *speed*radius*bioRand(.985f,1.015f);
+            spark->active=true;spark->color=rocket.color;spark->shape=1;
+            spark->size=scale*bioRand(5,8);spark->life=spark->maxLife=bioRand(1.9f,2.6f);
+            spark->angle=0;spark->rotation=0;spark->drag=.994f;spark->gravity=28*scale;
         }
     }
     void spawnRocket(){
@@ -662,9 +710,6 @@ protected:
             s.pos+=s.vel*dt;s.angle+=s.rotation*dt;
             s.vel*=std::pow(s.drag,dt*60.f);
             s.vel+=QVector2D(0.f,s.gravity*dt);
-            // An occasional spark leaves a delicate independent fading trail.
-            if(s.maxLife>1.4f && s.life<s.maxLife*.85f && (rng()%1400)==0)
-                emitTrail(s.pos,s.color);
         }
         for(size_t i=0;i<fireCrackles.size();){
             auto &c=fireCrackles[i];c.pos+=c.vel*dt;c.vel*=std::pow(.97f,dt*60.f);
@@ -678,47 +723,8 @@ protected:
     void paintFireworks(){
         // Simulation remains on the CPU; all spark rasterization and glow are GPU point sprites.
         if(!fireProgram){
-            static const char *vertex=R"GLSL(#version 330 core
-layout(location=0) in vec2 a_pos;
-layout(location=1) in float a_size;
-layout(location=2) in float a_life;
-layout(location=3) in vec3 a_color;
-layout(location=4) in float a_shape;
-layout(location=5) in float a_angle;
-uniform vec2 u_resolution;
-out vec3 v_color;
-out float v_life;
-out float v_shape;
-out float v_angle;
-void main(){
-    vec2 ndc=(a_pos/u_resolution)*2.0-1.0;
-    gl_Position=vec4(ndc.x,-ndc.y,0.0,1.0);
-    gl_PointSize=a_size;
-    v_color=a_color;v_life=a_life;v_shape=a_shape;v_angle=a_angle;
-})GLSL";
-            static const char *fragment=R"GLSL(#version 330 core
-in vec3 v_color;
-in float v_life;
-in float v_shape;
-in float v_angle;
-out vec4 fragColor;
-uniform float u_time;
-void main(){
-    vec2 uv=gl_PointCoord*2.0-1.0;
-    float a=cos(v_angle),b=sin(v_angle);
-    vec2 q=vec2(a*uv.x-b*uv.y,b*uv.x+a*uv.y);
-    float radius=length(uv);
-    float halo=exp(-radius*radius*7.5)*.32;
-    float core=exp(-radius*radius*85.0)*1.65;
-    float glow=clamp((halo+core)*v_life,0.0,1.0);
-    if(v_shape>1.5 && v_shape<2.5)glow=step(radius,.24)*v_life;
-    if(v_shape>2.5){
-        float flicker=.18+.82*pow(.5+.5*sin(u_time*23.0+v_angle*9.0),4.0);
-        glow=clamp((halo+core)*v_life*flicker*1.2,0.0,1.0);
-    }
-    if(glow<.012)discard;
-    fragColor=vec4(v_color*glow,glow);
-})GLSL";
+            const auto vertex=read("fireworks.vert");
+            const auto fragment=read("fireworks.frag");
             fireProgram=std::make_unique<QOpenGLShaderProgram>();
             if(!fireProgram->addShaderFromSourceCode(QOpenGLShader::Vertex,vertex)||
                !fireProgram->addShaderFromSourceCode(QOpenGLShader::Fragment,fragment)||
@@ -753,6 +759,7 @@ void main(){
         for(const auto &s:fwSparks)if(s.active){
             float life=std::clamp(s.life/std::max(.0001f,s.maxLife),0.f,1.f);
             float pointSize=s.shape==2?1.5f:std::clamp(s.size*5.0f,2.f,22.f);
+            if(s.shape==1)pointSize=std::clamp(s.size*6.f,24.f,84.f);
             if(s.shape==3)pointSize=std::clamp(s.size*7.5f,5.f,19.f);
             particles.push_back({s.pos.x()*dpr,s.pos.y()*dpr,pointSize*dpr,life,
                 float(s.color.redF()),float(s.color.greenF()),float(s.color.blueF()),
@@ -761,6 +768,27 @@ void main(){
         for(const auto &r:fwRockets)if(r.active)
             particles.push_back({r.pos.x()*dpr,r.pos.y()*dpr,28.f*dpr,1.f,
                 float(r.color.redF()),float(r.color.greenF()),float(r.color.blueF()),0.f,0.f});
+        constexpr float travel=1.85f, persistence=1.62f;
+        std::erase_if(comets,[&](const Comet &c){return fireSeconds-c.start>=travel+persistence;});
+        for(const auto &c:comets){
+            const float age=fireSeconds-c.start;
+            for(int i=0;i<150;++i){
+                const float progress=i/149.f, born=progress*travel, elapsed=age-born;
+                if(elapsed<0)break;
+                if(elapsed>=persistence)continue;
+                auto pos=c.origin+c.velocity*((1-std::exp(-.85f*born))/.85f);
+                pos.setY(pos.y()+49*c.scale*born*born);
+                float size=20+20*progress;
+                float light=(.28f+.38f*progress)*std::clamp((persistence-elapsed)/.90f,0.f,1.f)
+                            *std::clamp((travel+.10f-born)/.58f,0.f,1.f);
+                if(age<travel && elapsed<travel/149.f){
+                    const float fade=std::clamp((travel+.03f-age)/.57f,0.f,1.f);
+                    size=60+10*fade;light=.95f*fade;
+                }
+                particles.push_back({pos.x()*dpr,pos.y()*dpr,size*c.scale*dpr,light,
+                    float(c.color.redF()),float(c.color.greenF()),float(c.color.blueF()),1.f,0.f});
+            }
+        }
         glEnable(GL_PROGRAM_POINT_SIZE);
         glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE);
         fireProgram->bind();fireProgram->setUniformValue("u_resolution",QVector2D(float(w),float(h)));fireProgram->setUniformValue("u_time",fireSeconds);
@@ -814,8 +842,8 @@ private:
     std::array<FireRocket,12> fwRockets{};
     std::array<FireSpark,18000> fwSparks{};
     std::vector<CrackleBurst> fireCrackles;size_t fireParticleCursor=0;
-    // Rings intentionally disabled: fireworks use organic bursts instead.
-    std::array<FireRing,28> fwRings{};
+    std::vector<Comet> comets;
+    bool fireworksDebug=false;
     int fireLaunchCount=0;bool fireworksReady=false;float fireSpawnTimer=0,fireSeconds=0;
     std::array<QVector4D,8> bioCells{};
     std::array<QVector2D,8> bioCellVelocity{};
@@ -864,7 +892,7 @@ protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
-        p.fillRect(rect(),QColor("#20152e"));
+        p.fillRect(rect(),QColor(32,21,46,100));
         if(displayMode==2){
             int split=width()/2;
             drawWave(p,QRect(0,0,split,height()));
@@ -919,68 +947,52 @@ class PlayerWindow:public QMainWindow {
 public:
     PlayerWindow(){
         setWindowTitle("μSIK");resize(1130,820);setMinimumSize(930,670);setStyleSheet(R"CSS(
-QMainWindow{background:#24132c;}QWidget#canvas{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #381754,stop:0.46 #632b60,stop:1 #cf713e);}QWidget{color:#fff4ed;font-family: "Noto Sans";font-size:13px;}
+QMainWindow{background:#24132c;}QWidget{color:#fff4ed;font-family: "Noto Sans";font-size:13px;}
 QLabel#brand{font-size:42px;font-weight:800;}QLabel#eyebrow{color:#e8c1d6;font-size:11px;}
 QLabel#track{font-size:22px;font-weight:600;}QFrame#panel{background:#28162f;border:1px solid #69425b;border-radius:18px;}
 QPushButton{background:#422442;border:1px solid #7d5277;border-radius:9px;padding:10px 12px;}
 QPushButton:hover{background:#693b66;border-color:#f7ae89;}QPushButton:pressed{background:#7d436f;}
-QListWidget{background:#24152d;border:1px solid #624065;border-radius:14px;}
-QListWidget::item{padding:12px 9px;border-bottom:1px solid #50344a;}
-QListWidget::item:selected{background:#80537e;}QComboBox{background:#422442;padding:6px;}
+QFrame#nowPanel,QFrame#playlistPanel{background:rgba(23,13,35,190);border:1px solid rgba(255,255,255,28);border-radius:18px;}
+QFrame#playlistPanel QPushButton,QPushButton#visualize{background:rgba(255,255,255,17);border-color:rgba(255,255,255,35);}
+QFrame#playlistPanel QPushButton:hover,QPushButton#visualize:hover{background:rgba(255,255,255,38);border-color:#f7ae89;}
+QFrame#playlistPanel QPushButton:pressed,QPushButton#visualize:pressed{background:rgba(125,67,111,185);}
+QListWidget#playlist{background:transparent;border:none;outline:none;}
+QListWidget#playlist::item{padding:12px 9px;border-bottom:1px solid rgba(255,255,255,12);border-radius:5px;}
+QListWidget#playlist::item:hover{background:rgba(255,255,255,18);}
+QListWidget#playlist::item:selected{background:rgba(196,131,224,70);}
+QComboBox{background:#422442;padding:6px;}
 QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizontal{background:#ffe1cc;width:12px;margin:-5px 0;border-radius:6px;}
 )CSS");
         auto *central=new QWidget;central->setObjectName("canvas");setCentralWidget(central);auto *v=new QVBoxLayout(central);v->setContentsMargins(30,22,30,24);v->setSpacing(16);
         auto *header=new QHBoxLayout;auto *brand=new QVBoxLayout;auto *title=new QLabel("μSIK");title->setObjectName("brand");brand->addWidget(title);auto *tagline=new QLabel("SOUND INTO COLOUR");tagline->setObjectName("eyebrow");brand->addWidget(tagline);header->addLayout(brand);header->addStretch();
         auto *party=new QPushButton("✦ Party Mode");party->setStyleSheet("color:#ffffff;");party->setCheckable(true);party->setObjectName("primary");header->addWidget(party);auto *settingsButton=new QPushButton("Settings");header->addWidget(settingsButton);v->addLayout(header);
-        auto *now=new QFrame;now->setObjectName("panel");auto *nowLayout=new QVBoxLayout(now);nowLayout->addWidget(new QLabel("NOW PLAYING"));trackLabel=new QLabel("Your next favourite sound");trackLabel->setObjectName("track");nowLayout->addWidget(trackLabel);
+        auto *now=new QFrame;now->setObjectName("nowPanel");auto *nowLayout=new QVBoxLayout(now);nowLayout->addWidget(new QLabel("NOW PLAYING"));trackLabel=new QLabel("Your next favourite sound");trackLabel->setObjectName("track");nowLayout->addWidget(trackLabel);
         scope=new ScopeWidget;nowLayout->addWidget(scope);
         auto *seekRow=new QHBoxLayout;elapsedLabel=new QLabel("0:00");durationLabel=new QLabel("0:00");seek=new QSlider(Qt::Horizontal);seek->setRange(0,0);
         seekRow->addWidget(elapsedLabel);seekRow->addWidget(seek);seekRow->addWidget(durationLabel);nowLayout->addLayout(seekRow);v->addWidget(now);
-        list=new QListWidget;list->setObjectName("playlist");list->setSelectionMode(QAbstractItemView::ExtendedSelection);list->setDragDropMode(QAbstractItemView::InternalMove);list->setContextMenuPolicy(Qt::CustomContextMenu);v->addWidget(list);
-        QObject::connect(list,&QWidget::customContextMenuRequested,this,[this](const QPoint &pos){auto *item=list->itemAt(pos);if(!item)return;QMenu menu(this);auto *metadata=menu.addAction("Track metadata…");auto *selected=menu.exec(list->viewport()->mapToGlobal(pos));if(selected==metadata)showMetadata(item->data(Qt::UserRole).toString());});
+        auto *playlistPanel=new QFrame;playlistPanel->setObjectName("playlistPanel");
+        auto *playlistLayout=new QVBoxLayout(playlistPanel);
+        playlistLayout->setContentsMargins(18,12,18,14);
+        v->addWidget(playlistPanel,1);
+        list=new QListWidget;list->setObjectName("playlist");list->setSelectionMode(QAbstractItemView::ExtendedSelection);list->setDragDropMode(QAbstractItemView::InternalMove);list->setContextMenuPolicy(Qt::CustomContextMenu);playlistLayout->addWidget(list,1);list->viewport()->setAutoFillBackground(false);
+        QObject::connect(list,&QWidget::customContextMenuRequested,this,[this](const QPoint &pos){auto *item=list->itemAt(pos);if(!item)return;QMenu menu(this);auto *metadata=menu.addAction("Track information");auto *selected=menu.exec(list->viewport()->mapToGlobal(pos));if(selected==metadata)showTrackInformation(item->data(Qt::UserRole).toString());});
         auto *row=new QHBoxLayout;auto *add=new QPushButton("+  Add files");auto *addFolders=new QPushButton("Add folders");auto *load=new QPushButton("Load playlist");auto *save=new QPushButton("Save playlist");auto *remove=new QPushButton("Remove selected");
-        for(auto *b:{add,addFolders,remove,load,save})row->addWidget(b);v->addLayout(row);
+        for(auto *b:{add,addFolders,remove,load,save})row->addWidget(b);playlistLayout->addLayout(row);
         auto *searchRow=new QHBoxLayout;
         auto *prompt=new QLabel(QString::fromUtf8(">"));
-        prompt->setStyleSheet("color:#000000;font-size:24px;font-weight:900;background:transparent;");
-        auto *promptGlow=new QGraphicsDropShadowEffect(prompt);
-        promptGlow->setBlurRadius(4);promptGlow->setOffset(0,0);promptGlow->setColor(Qt::white);
-        prompt->setGraphicsEffect(promptGlow);
-        auto *search=new QLineEdit;
+        prompt->setStyleSheet("color:white;font-size:24px;font-weight:900;background:transparent;");
+        search=new QLineEdit;
         search->setObjectName("fzfSearch");search->setPlaceholderText("Fuzzy-search playlist (Esc clears)");
         search->setClearButtonEnabled(true);
         search->setStyleSheet("QLineEdit{color:white;background:rgba(10,9,20,220);border:1px solid #79508e;border-radius:8px;padding:9px 12px;font-size:15px;}QLineEdit:focus{border:1px solid #ee88eb;}");
-        searchRow->addWidget(prompt);searchRow->addWidget(search,1);v->addLayout(searchRow);
-        // Find against the original title AND the full path, not the decorated
-        // numbered label. Exact substrings always match before fuzzy fallback.
-        auto fuzzyScore=[](const QString &candidate,const QString &pattern)->int{
-            if(pattern.isEmpty())return 0;
-            const QString hay=candidate.toCaseFolded(),need=pattern.toCaseFolded();
-            int pos=0,score=0,last=-2;
-            for(QChar ch:need){
-                int at=hay.indexOf(ch,pos);if(at<0)return -1;
-                score+=8;
-                if(at==last+1)score+=14;
-                if(at==0 || !hay[at-1].isLetterOrNumber())score+=10;
-                score-=std::min(20,at-pos);
-                pos=at+1;last=at;
-            }
-            return score;
-        };
-        auto refreshSearch=[this,search,fuzzyScore](){
-            const QString query=search->text().trimmed();
-            for(int i=0;i<list->count();++i){
-                auto *item=list->item(i);
-                const QString name=QFileInfo(item->data(Qt::UserRole).toString()).fileName();
-                const bool match=query.isEmpty() || fuzzyScore(name+" "+item->text(),query)>=0;
-                item->setHidden(!match);
-            }
-        };
-        QObject::connect(search,&QLineEdit::textChanged,this,[refreshSearch](const QString &){refreshSearch();});
+        searchRow->addWidget(prompt);searchRow->addWidget(search,1);playlistLayout->addLayout(searchRow);
+        QObject::connect(search,&QLineEdit::textChanged,this,[this](const QString &text){
+            searchTerms=text.toCaseFolded().simplified().split(' ',Qt::SkipEmptyParts);
+            for(int i=0;i<list->count();++i)filterTrack(list->item(i));
+        });
         auto *clearSearch=new QShortcut(QKeySequence(Qt::Key_Escape),search);
+        clearSearch->setContext(Qt::WidgetShortcut);
         QObject::connect(clearSearch,&QShortcut::activated,search,&QLineEdit::clear);
-        QObject::connect(list->model(),&QAbstractItemModel::rowsInserted,this,[refreshSearch](const QModelIndex&,int,int){refreshSearch();});
-        QObject::connect(list->model(),&QAbstractItemModel::modelReset,this,[refreshSearch](){refreshSearch();});
         QObject::connect(search,&QLineEdit::returnPressed,this,[this]{
             for(int i=0;i<list->count();++i)if(!list->item(i)->isHidden()){playRow(i);return;}
         });
@@ -1009,7 +1021,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         auto *play=new QPushButton;play->setToolTip("Play"); play->setAccessibleName("Play"); play->setIcon(makeTransportIcon(1));
         auto *stop=new QPushButton;stop->setToolTip("Stop"); stop->setIcon(makeTransportIcon(2));
         auto *next=new QPushButton;next->setToolTip("Next"); next->setIcon(makeTransportIcon(3));
-        auto *visButton=new QPushButton(QString::fromUtf8("✦ Visualization"));visButton->setStyleSheet("color:#ffffff;");
+        auto *visButton=new QPushButton(QString::fromUtf8("✦ Visualization"));visButton->setObjectName("visualize");
         int transportIndex=2;
         for(auto *button:{previous,play,stop,next}){
             button->setFixedWidth(42);
@@ -1026,12 +1038,12 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         updateMuteIcon(false);mute->setToolTip("Mute / Unmute");mute->setCheckable(true);
         auto *volume=new QSlider(Qt::Horizontal);volume->setRange(0,100);volume->setValue(70);volume->setMaximumWidth(180);
         effectRow->addStretch();effectRow->addWidget(new QLabel("Volume"));effectRow->addWidget(mute);effectRow->addWidget(volume);v->addLayout(effectRow);
-        status=new QLabel("Add your music to begin · Right-click a track for metadata");v->addWidget(status);
+        status=new QLabel("Add your music to begin · Right-click a track for information");v->addWidget(status);
         player=new QMediaPlayer(this);output=new QAudioOutput(this);output->setVolume(.7);player->setAudioOutput(output);
-        buffer=new QAudioBufferOutput(this);player->setAudioBufferOutput(buffer);
+        route=std::make_unique<PlaybackOutput>(player,output,[this](const QAudioBuffer &b){analyze(b);},[this](QString message){status->setText(message);});
         QObject::connect(player,&QMediaPlayer::durationChanged,this,[this](qint64 ms){seek->setRange(0,int(ms));durationLabel->setText(QString("%1:%2").arg(ms/60000).arg((ms/1000)%60,2,10,QChar('0')));});
         QObject::connect(player,&QMediaPlayer::positionChanged,this,[this](qint64 ms){if(!seek->isSliderDown())seek->setValue(int(ms));elapsedLabel->setText(QString("%1:%2").arg(ms/60000).arg((ms/1000)%60,2,10,QChar('0')));});
-        QObject::connect(seek,&QSlider::sliderReleased,this,[this]{player->setPosition(seek->value());});
+        QObject::connect(seek,&QSlider::sliderReleased,this,[this]{route->flush();player->setPosition(seek->value());});
         QObject::connect(volume,&QSlider::valueChanged,this,[this](int n){output->setVolume(n/100.f);});
         QObject::connect(mute,&QPushButton::toggled,this,[this,updateMuteIcon](bool on){output->setMuted(on);updateMuteIcon(on);});
         QObject::connect(add,&QPushButton::clicked,this,[this]{for(auto p:QFileDialog::getOpenFileNames(this,"Add audio",QString(),"Audio (*.mp3 *.flac *.wav *.ogg *.m4a *.opus *.aac);;All (*.*)"))addFile(p);});
@@ -1061,7 +1073,14 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         QObject::connect(settingsButton,&QPushButton::clicked,this,[this]{
             QDialog dialog(this);dialog.setWindowTitle("μSIK Settings");dialog.resize(520,510);
             auto *layout=new QVBoxLayout(&dialog);
-            auto *form=new QFormLayout;layout->addLayout(form);
+            auto *tabs=new QTabWidget;
+            layout->addWidget(tabs);
+            auto *general=new QWidget;
+            auto *audio=new QWidget;
+            tabs->addTab(general,"Player");
+            tabs->addTab(audio,"Audio");
+            auto *form=new QFormLayout(general);
+            OutputControls audioControls(new QFormLayout(audio),route->choice());
             auto *choice=new QComboBox;choice->addItems(Visual::names());choice->setCurrentIndex(effects->currentIndex());form->addRow("Visualization",choice);
             auto *beats=new QComboBox;beats->addItems({"2 bars (8 beats)","4 bars (16 beats)","8 bars (32 beats)"});beats->setCurrentIndex(paletteSelection);form->addRow("Laser palette cycle",beats);
             auto *sorting=new QComboBox;sorting->addItems({"Manual / insertion","Title A-Z","Title Z-A","Path A-Z"});sorting->setCurrentIndex(sortSelection);form->addRow("Sort playlist",sorting);
@@ -1071,21 +1090,23 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             auto *spectrumDensity=new QSpinBox;spectrumDensity->setRange(8,2048);spectrumDensity->setValue(spectrumSetting);form->addRow("Spectrum bars (1 px possible)",spectrumDensity);
             auto *gradientChoice=new QComboBox;gradientChoice->addItems({"μSIK purple / orange","Black → White","Bright yellow → Deep green","Electric cyan → Deep blue","Coral → Midnight violet","Lime → Deep teal","Electric pink → Midnight blue","Golden orange → Deep burgundy","Custom colors"});gradientChoice->setCurrentIndex(gradientSelection);form->addRow("Background gradient",gradientChoice);
             auto *reverse=new QCheckBox("Reverse gradient direction");reverse->setChecked(reverseGradient);form->addRow("",reverse);
-            auto *colors=new QPushButton("Choose custom gradient stops…");layout->addWidget(colors);
+            auto *colors=new QPushButton("Choose custom gradient stops…");form->addRow(colors);
             QObject::connect(colors,&QPushButton::clicked,&dialog,[this,&dialog]{QColor a=QColorDialog::getColor(customStart,&dialog,"Gradient start");if(a.isValid())customStart=a;QColor b=QColorDialog::getColor(customEnd,&dialog,"Gradient end");if(b.isValid())customEnd=b;});
             auto *apply=new QPushButton("Apply");layout->addWidget(apply);
             QObject::connect(apply,&QPushButton::clicked,&dialog,&QDialog::accept);
             if(dialog.exec()!=QDialog::Accepted)return;
+            route->configure(audioControls.value());route->choice().save();
             effects->setCurrentIndex(choice->currentIndex());paletteSelection=beats->currentIndex();visual.setPaletteBeats(8<<paletteSelection);
+            const bool sortChanged=sortSelection!=sorting->currentIndex();
             sortSelection=sorting->currentIndex();orderSelection=ordering->currentIndex();scopeSetting=scopeDensity->value();spectrumSetting=spectrumDensity->value();gradientSelection=gradientChoice->currentIndex();reverseGradient=reverse->isChecked();
-            scope->setScopePoints(scopeSetting);scope->setBands(spectrumSetting);scope->setMode(scopeMode->currentIndex());applyGradient();sortTracks();
+            scope->setScopePoints(scopeSetting);scope->setBands(spectrumSetting);scope->setMode(scopeMode->currentIndex());applyGradient();if(sortChanged)sortTracks();
         });
         QObject::connect(list,&QListWidget::itemDoubleClicked,this,[this](QListWidgetItem *i){playRow(list->row(i));});
         QObject::connect(player,&QMediaPlayer::mediaStatusChanged,this,[this](QMediaPlayer::MediaStatus s){if(s==QMediaPlayer::EndOfMedia)playRow(nextTrackIndex());});
         QObject::connect(effects,&QComboBox::currentIndexChanged,this,[this](int index){if(visual.isVisible())visual.setEffect(index);});
         QObject::connect(visButton,&QPushButton::clicked,this,[this]{visual.setEffect(effects->currentIndex());visual.show();visual.raise();});
-        QObject::connect(buffer,&QAudioBufferOutput::audioBufferReceived,this,[this](const QAudioBuffer &b){analyze(b);});
-        QSettings settings("MusiK","MusiKCpp");
+        
+        QSettings settings(QSettings::defaultFormat(),QSettings::UserScope,"MusiK","MusiKCpp");
         int storedEffect=settings.value("effect",0).toInt();
         if(settings.value("effectListVersion",0).toInt()<2){
             // V1 had Laser Nexus before Orbit Streams. Preserve old selection.
@@ -1095,7 +1116,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         }
         effects->setCurrentIndex(std::clamp(storedEffect,0,effects->count()-1));sortSelection=settings.value("sort",0).toInt();orderSelection=settings.value("order",0).toInt();gradientSelection=settings.value("gradient",0).toInt();reverseGradient=settings.value("reverseGradient",false).toBool();scopeSetting=settings.value("scope",512).toInt();spectrumSetting=settings.value("spectrum",48).toInt();scope->setScopePoints(scopeSetting);scope->setBands(spectrumSetting);scope->setMode(settings.value("scopeMode",0).toInt());applyGradient();
         auto autosave=QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)+"/autosave.m3u8";if(QFile::exists(autosave))loadList(autosave);
-        QObject::connect(qApp,&QApplication::aboutToQuit,this,[this]{QString directory=QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);QDir().mkpath(directory);saveList(directory+"/autosave.m3u8");QSettings s("MusiK","MusiKCpp");s.setValue("effect",effects->currentIndex());s.setValue("effectListVersion",2);s.setValue("sort",sortSelection);s.setValue("order",orderSelection);s.setValue("gradient",gradientSelection);s.setValue("reverseGradient",reverseGradient);s.setValue("scopeMode",scope->mode());s.setValue("scope",scopeSetting);s.setValue("spectrum",spectrumSetting);});
+        QObject::connect(qApp,&QApplication::aboutToQuit,this,[this]{QString directory=QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);QDir().mkpath(directory);saveList(directory+"/autosave.m3u8");QSettings s(QSettings::defaultFormat(),QSettings::UserScope,"MusiK","MusiKCpp");s.setValue("effect",effects->currentIndex());s.setValue("effectListVersion",2);s.setValue("sort",sortSelection);s.setValue("order",orderSelection);s.setValue("gradient",gradientSelection);s.setValue("reverseGradient",reverseGradient);s.setValue("scopeMode",scope->mode());s.setValue("scope",scopeSetting);s.setValue("spectrum",spectrumSetting);});
     }
     void applyGradient(){
         QColor a("#381754"),b("#cf713e");
@@ -1108,7 +1129,10 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         if(gradientSelection==7){a=QColor(255,160,30);b=QColor(70,8,35);}
         if(gradientSelection==8){a=customStart;b=customEnd;}
         if(reverseGradient)std::swap(a,b);
-        centralWidget()->setStyleSheet(QString("QWidget#canvas{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2);}").arg(a.name(),b.name()));
+        QString stops=QString("stop:0 %1,").arg(a.name());
+        if(gradientSelection==0 && !reverseGradient)stops+="stop:0.46 #632b60,";
+        stops+="stop:1 "+b.name();
+        centralWidget()->setStyleSheet(QString("QWidget#canvas{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,%1);}").arg(stops));
     }
     void sortTracks(){
         if(!sortSelection)return;
@@ -1123,48 +1147,64 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==playing){list->setCurrentRow(i);break;}
     }
     int nextTrackIndex(int direction=1){
-        int count=list->count();if(!count)return -1;
-        int cur=list->currentRow();if(cur<0)cur=0;
-        if(orderSelection==4)return QRandomGenerator::global()->bounded(count);
-        if(orderSelection==2||orderSelection==3){
-            if(shuffleQueue.isEmpty()){for(int i=0;i<count;++i)shuffleQueue.append(i);
-                if(orderSelection==3){std::stable_sort(shuffleQueue.begin(),shuffleQueue.end(),[this](int a,int b){return QFileInfo(list->item(a)->data(Qt::UserRole).toString()).absolutePath()<QFileInfo(list->item(b)->data(Qt::UserRole).toString()).absolutePath();});}
-                else std::shuffle(shuffleQueue.begin(),shuffleQueue.end(),std::mt19937(QRandomGenerator::global()->generate()));
-            }
-            int next=shuffleQueue.takeFirst();return next;
+        QStringList paths;
+        for(int i=0;i<list->count();++i)paths.append(list->item(i)->data(Qt::UserRole).toString());
+        const int count=paths.size();
+        if(!count)return -1;
+        const auto current=player->source().toLocalFile();
+        int row=paths.indexOf(current);
+        if(paths!=shufflePaths || orderSelection!=shuffleMode){
+            shuffleMode=orderSelection;shufflePaths=paths;shuffleQueue.clear();
+            history.removeIf([&](const QString &path){return !paths.contains(path);});
+            historyIndex=history.lastIndexOf(current);
+            if(historyIndex<0){history.clear();if(row>=0){history.append(current);historyIndex=0;}}
         }
-        int d=orderSelection==1?-direction:direction;
-        return (cur+d+count)%count;
+        if(orderSelection==2 || orderSelection==4){
+            if(direction<0)return historyIndex>0?paths.indexOf(history[--historyIndex]):-1;
+            if(historyIndex+1<history.size())return paths.indexOf(history[++historyIndex]);
+            if(shuffleQueue.isEmpty() || orderSelection==4){
+                shuffleQueue.clear();
+                for(int i=0;i<count;++i)if(i!=row || count==1)shuffleQueue.append(i);
+                std::shuffle(shuffleQueue.begin(),shuffleQueue.end(),*QRandomGenerator::global());
+            }
+            row=shuffleQueue.takeLast();
+            history.append(paths[row]);historyIndex=history.size()-1;
+            return row;
+        }
+        if(orderSelection==3){
+            if(shuffleQueue.isEmpty()){
+                QMap<QString,QVector<int>> albums;
+                for(int i=0;i<count;++i)albums[QFileInfo(paths[i]).absolutePath()].append(i);
+                auto blocks=albums.values();
+                std::shuffle(blocks.begin(),blocks.end(),*QRandomGenerator::global());
+                for(const auto &block:blocks)shuffleQueue+=block;
+            }
+            int pos=shuffleQueue.indexOf(row);
+            return shuffleQueue[(pos+direction+count)%count];
+        }
+        return (row+(orderSelection==1?-direction:direction)+count)%count;
     }
     void closeEvent(QCloseEvent *event) override {visual.close();QMainWindow::closeEvent(event);}
-    void addFile(QString path){QFileInfo f(path);if(!f.isFile())return;for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==f.absoluteFilePath())return;auto *item=new QListWidgetItem(f.completeBaseName(),list);item->setData(Qt::UserRole,f.absoluteFilePath());item->setData(Qt::UserRole+1,f.completeBaseName());item->setToolTip(f.absoluteFilePath());refreshNumbers();}
+    void filterTrack(QListWidgetItem *item){
+        const auto path=item->data(Qt::UserRole).toString().toCaseFolded();
+        const bool matches=std::all_of(searchTerms.cbegin(),searchTerms.cend(),
+            [&](const QString &term){return path.contains(term);});
+        item->setHidden(!matches);
+    }
+    void addFile(QString path){QFileInfo f(path);if(!f.isFile())return;for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==f.absoluteFilePath())return;auto *item=new QListWidgetItem(f.completeBaseName(),list);item->setData(Qt::UserRole,f.absoluteFilePath());item->setData(Qt::UserRole+1,f.completeBaseName());item->setToolTip(f.absoluteFilePath());filterTrack(item);refreshNumbers();}
     void refreshNumbers(){for(int n=0;n<list->count();++n){auto *item=list->item(n);QString text=item->data(Qt::UserRole+1).toString();bool playing=player && player->source().isLocalFile() && QFileInfo(player->source().toLocalFile()).absoluteFilePath()==item->data(Qt::UserRole).toString();item->setText(QString("%1    %2  %3").arg(n+1,3).arg(playing?"▶":" ").arg(text));}}
     void loadList(const QString &path){QFile f(path);if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return;QDir dir=QFileInfo(path).dir();while(!f.atEnd()){QString p=QString::fromUtf8(f.readLine()).trimmed();if(p.isEmpty()||p.startsWith('#')||p.contains("://"))continue;addFile(dir.absoluteFilePath(p));}}
     void saveList(const QString &path){QFile f(path);if(!f.open(QIODevice::WriteOnly|QIODevice::Text))return;f.write("#EXTM3U\n");QDir dir=QFileInfo(path).dir();for(int i=0;i<list->count();i++)f.write((dir.relativeFilePath(list->item(i)->data(Qt::UserRole).toString())+"\n").toUtf8());}
-    void playRow(int i){if(i<0||i>=list->count()){player->stop();return;}list->setCurrentRow(i);player->setSource(QUrl::fromLocalFile(list->item(i)->data(Qt::UserRole).toString()));player->play();trackLabel->setText(list->item(i)->data(Qt::UserRole+1).toString());refreshNumbers();}
-    void showMetadata(const QString &path){
-        // Metadata is asynchronous: read the selected track without changing playback.
-        auto *dialog=new QDialog(this);dialog->setWindowTitle("Track metadata");dialog->resize(480,300);
-        auto *layout=new QVBoxLayout(dialog);auto *view=new QTextEdit(dialog);view->setReadOnly(true);layout->addWidget(view);
-        auto *probe=new QMediaPlayer(dialog);
-        QFileInfo info(path);
-        const QString header=QString("File: %1\nFormat: %2\nSize: %3 MiB\nPath: %4")
-            .arg(info.fileName(),info.suffix().toUpper()).arg(info.size()/1048576.0,0,'f',2).arg(info.absoluteFilePath());
-        view->setPlainText(header+"\n\nReading audio metadata…");
-        auto render=[view,probe,header](){
-            QString result=header;const auto meta=probe->metaData();
-            for(auto key:meta.keys()){
-                const QVariant value=meta.value(key);
-                if(value.isValid())result+=QString("\n%1: %2").arg(QMediaMetaData::metaDataKeyToString(key),value.toString());
-            }
-            view->setPlainText(result);
-        };
-        QObject::connect(probe,&QMediaPlayer::metaDataChanged,dialog,render);
-        QObject::connect(probe,&QMediaPlayer::mediaStatusChanged,dialog,[render](QMediaPlayer::MediaStatus status){
-            if(status==QMediaPlayer::LoadedMedia || status==QMediaPlayer::BufferedMedia)render();
-        });
-        probe->setSource(QUrl::fromLocalFile(path));
-        dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->show();
+    void playRow(int i){if(i<0||i>=list->count())return;
+        const auto path=list->item(i)->data(Qt::UserRole).toString();
+        if((orderSelection==2 || orderSelection==4) && history.value(historyIndex)!=path){
+            history.resize(historyIndex+1);history.append(path);++historyIndex;
+            shuffleQueue.removeAll(i);
+        }
+        list->setCurrentRow(i);player->setSource(QUrl::fromLocalFile(list->item(i)->data(Qt::UserRole).toString()));player->play();trackLabel->setText(list->item(i)->data(Qt::UserRole+1).toString());refreshNumbers();}
+    void showTrackInformation(const QString &path){
+        auto *dialog=new TrackInformation(path,this,centralWidget()->styleSheet());
+        dialog->open();
     }
     void analyze(const QAudioBuffer &b){
         if(!b.isValid()||b.frameCount()==0)return;
@@ -1214,7 +1254,11 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         if(state.pulse>.9f){++beats;visual.beat();if(beats%16==0 && effects->currentIndex()>=4 && effects->currentIndex()<=6)visual.changeLaserPhrase();}visual.setSound(state);scope->setSignal(waveform,spectrumBands);
     }
 private:
-    QListWidget *list;QSlider *seek;QLabel *elapsedLabel,*durationLabel;ScopeWidget *scope;QLabel *trackLabel;QComboBox *effects;QLabel *status;QMediaPlayer *player;QAudioOutput *output;QAudioBufferOutput *buffer;Visual visual;SoundState state;double lastSample=0;int beats=0;QVector<float> waveform,spectrumBands;QTimer partyTimer,rainbowTimer;bool partyEnabled=false,reverseGradient=false;int rainbowPhase=0,sortSelection=0,orderSelection=0,paletteSelection=1,gradientSelection=0,scopeSetting=512,spectrumSetting=48;QColor customStart=QColor(255,0,255),customEnd=QColor(255,150,0);QVector<int> shuffleQueue;
+    QLineEdit *search;
+    QStringList searchTerms;
+    QListWidget *list;QSlider *seek;QLabel *elapsedLabel,*durationLabel;ScopeWidget *scope;QLabel *trackLabel;QComboBox *effects;QLabel *status;QMediaPlayer *player;QAudioOutput *output;std::unique_ptr<PlaybackOutput> route;Visual visual;SoundState state;double lastSample=0;int beats=0;QVector<float> waveform,spectrumBands;QTimer partyTimer,rainbowTimer;bool partyEnabled=false,reverseGradient=false;int rainbowPhase=0,sortSelection=0,orderSelection=0,paletteSelection=1,gradientSelection=0,scopeSetting=512,spectrumSetting=48;QColor customStart=QColor(255,0,255),customEnd=QColor(255,150,0);QVector<int> shuffleQueue;
+    QStringList shufflePaths,history;
+    int shuffleMode=-1,historyIndex=-1;
 };
 int main(int argc,char **argv){
     QSurfaceFormat fmt;fmt.setVersion(3,3);fmt.setProfile(QSurfaceFormat::CoreProfile);fmt.setSwapInterval(1);QSurfaceFormat::setDefaultFormat(fmt);

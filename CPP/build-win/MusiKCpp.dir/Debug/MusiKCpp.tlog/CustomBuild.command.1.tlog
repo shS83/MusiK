@@ -1,0 +1,10 @@
+^C:\USERS\SHSIS\ONEDRIVE\CODE\MUSIK\CPP\CMAKELISTS.TXT
+setlocal
+C:\Qt\Tools\CMake_64\bin\cmake.exe -SC:/Users/shsis/OneDrive/Code/MusiK/CPP -BC:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win --check-stamp-file C:/Users/shsis/OneDrive/Code/MusiK/CPP/build-win/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

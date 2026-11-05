@@ -1,5 +1,7 @@
 #include <QTabWidget>
 #include "audio_output.h"
+#include "circler_scene.h"
+#include "seek_slider.h"
 #include <QToolTip>
 #include <QApplication>
 #include <QMainWindow>
@@ -250,11 +252,11 @@ public:
         clock.start(); last=clock.elapsed();
     }
     static int laserVariant(int value){return value==4?1:(value==5?3:4);}
-    void setEffect(int value) { effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
-    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks"};}
+    void setEffect(int value) { if(effect!=value && value==9)circler.reset(); effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
+    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks","Circler Tetra"};}
     void setSound(SoundState s){ sound=s; }
     void changeLaserPhrase(){if(laser)laser->phrase();}
-    void beat(){if(laser)laser->onBeat();}
+    void beat(){if(laser)laser->onBeat();if(effect==9)circler.beat();}
     void setPartyMode(bool enabled){partyMode=enabled;if(laser)laser->setPartyMode(enabled);}
     void setPaletteBeats(int beats){paletteBeats=beats;if(laser)laser->setPaletteBeats(beats);}
 protected:
@@ -374,7 +376,7 @@ protected:
     }
     void mousePressEvent(QMouseEvent *e) override {if(effect==3){color=(color+1)%7;glyphCache.clear();update();}QOpenGLWidget::mousePressEvent(e);}
     void initializeGL() override {initializeOpenGLFunctions();glGenVertexArrays(1,&vao);glBindVertexArray(vao);glDisable(GL_DEPTH_TEST);}
-    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();program.reset();cube.reset();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
+    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();program.reset();cube.reset();circler.release();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
     static QByteArray read(const QString &name){QFile f(QCoreApplication::applicationDirPath()+"/shaders/"+name);if(!f.open(QIODevice::ReadOnly))return {};return f.readAll();}
     std::unique_ptr<QOpenGLShaderProgram> shader(const QString &frag){
         auto p=std::make_unique<QOpenGLShaderProgram>();auto vert=read("scene.vert"),fs=read(frag);
@@ -968,6 +970,7 @@ protected:
         if(effect==3){matrix(dt);return;}
         if(effect==7)updateBiolume(dt);
         if(effect==8){updateFireworks(dt);paintFireworks();return;}
+        if(effect==9){auto w=std::max(1,qRound(width()*devicePixelRatioF())),h=std::max(1,qRound(height()*devicePixelRatioF()));circler.paint(dt,w,h);return;}
         if(effect>=4 && effect<=6){if(!laser)laser=std::make_unique<LaserScene>(laserVariant(effect));laser->paint(this,dt,sound);return;}
         if(!program)setup();
         if(!program){QPainter p(this);p.fillRect(rect(),QColor("#21132d"));p.setPen(Qt::white);p.drawText(rect(),Qt::AlignCenter,error);return;}
@@ -1040,7 +1043,7 @@ private:
 #endif
     SoundState sound;int effect=0,color=1;float energy=0,speed=0,travel=0,phase=0,kickEnvelope=0;int frames=0;float fpsSeconds=0;bool partyMode=false;int paletteBeats=16;
     std::unique_ptr<QOpenGLShaderProgram> program,cube;GLuint texture=0,fbo=0,vao=0;int fw=0,fh=0;QString error;
-    std::unique_ptr<LaserScene> laser;std::mt19937 rng;std::vector<Stream> streams;std::vector<std::vector<QPixmap>> glyphCache;double pixelRatio=0;
+    CirclerScene circler;std::unique_ptr<LaserScene> laser;std::mt19937 rng;std::vector<Stream> streams;std::vector<std::vector<QPixmap>> glyphCache;double pixelRatio=0;
 };
 
 class ScopeWidget : public QWidget {
@@ -1145,7 +1148,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         auto *party=new QPushButton("✦ Party Mode");party->setStyleSheet("color:#ffffff;");party->setCheckable(true);party->setObjectName("primary");header->addWidget(party);auto *settingsButton=new QPushButton("Settings");header->addWidget(settingsButton);v->addLayout(header);
         auto *now=new QFrame;now->setObjectName("nowPanel");auto *nowLayout=new QVBoxLayout(now);nowLayout->addWidget(new QLabel("NOW PLAYING"));trackLabel=new QLabel("Your next favourite sound");trackLabel->setObjectName("track");nowLayout->addWidget(trackLabel);
         scope=new ScopeWidget;nowLayout->addWidget(scope);
-        auto *seekRow=new QHBoxLayout;elapsedLabel=new QLabel("0:00");durationLabel=new QLabel("0:00");seek=new QSlider(Qt::Horizontal);seek->setRange(0,0);
+        auto *seekRow=new QHBoxLayout;elapsedLabel=new QLabel("0:00");durationLabel=new QLabel("0:00");seek=new SeekSlider(Qt::Horizontal);seek->setRange(0,0);
         seekRow->addWidget(elapsedLabel);seekRow->addWidget(seek);seekRow->addWidget(durationLabel);nowLayout->addLayout(seekRow);v->addWidget(now);
         auto *playlistPanel=new QFrame;playlistPanel->setObjectName("playlistPanel");
         auto *playlistLayout=new QVBoxLayout(playlistPanel);
@@ -1221,6 +1224,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         QObject::connect(player,&QMediaPlayer::durationChanged,this,[this](qint64 ms){seek->setRange(0,int(ms));durationLabel->setText(QString("%1:%2").arg(ms/60000).arg((ms/1000)%60,2,10,QChar('0')));});
         QObject::connect(player,&QMediaPlayer::positionChanged,this,[this](qint64 ms){if(!seek->isSliderDown())seek->setValue(int(ms));elapsedLabel->setText(QString("%1:%2").arg(ms/60000).arg((ms/1000)%60,2,10,QChar('0')));});
         QObject::connect(seek,&QSlider::sliderReleased,this,[this]{route->flush();player->setPosition(seek->value());});
+        seek->trackClicked=[this](int position){route->flush();player->setPosition(position);};
         QObject::connect(volume,&QSlider::valueChanged,this,[this](int n){output->setVolume(n/100.f);});
         QObject::connect(mute,&QPushButton::toggled,this,[this,updateMuteIcon](bool on){output->setMuted(on);updateMuteIcon(on);});
         QObject::connect(add,&QPushButton::clicked,this,[this]{
@@ -1527,7 +1531,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
 private:
     QLineEdit *search;
     QStringList searchTerms;
-    QListWidget *list;QSlider *seek;QLabel *elapsedLabel,*durationLabel;ScopeWidget *scope;QLabel *trackLabel;QComboBox *effects;QLabel *status;QMediaPlayer *player;QAudioOutput *output;std::unique_ptr<PlaybackOutput> route;Visual visual;SoundState state;double lastSample=0;int beats=0;QVector<float> waveform,spectrumBands;QTimer partyTimer,rainbowTimer;bool partyEnabled=false,reverseGradient=false;int rainbowPhase=0,sortSelection=0,orderSelection=0,paletteSelection=1,gradientSelection=0,scopeSetting=512,spectrumSetting=48;QColor customStart=QColor(255,0,255),customEnd=QColor(255,150,0);QVector<int> shuffleQueue;
+    QListWidget *list;SeekSlider *seek;QLabel *elapsedLabel,*durationLabel;ScopeWidget *scope;QLabel *trackLabel;QComboBox *effects;QLabel *status;QMediaPlayer *player;QAudioOutput *output;std::unique_ptr<PlaybackOutput> route;Visual visual;SoundState state;double lastSample=0;int beats=0;QVector<float> waveform,spectrumBands;QTimer partyTimer,rainbowTimer;bool partyEnabled=false,reverseGradient=false;int rainbowPhase=0,sortSelection=0,orderSelection=0,paletteSelection=1,gradientSelection=0,scopeSetting=512,spectrumSetting=48;QColor customStart=QColor(255,0,255),customEnd=QColor(255,150,0);QVector<int> shuffleQueue;
     QStringList shufflePaths,history;
     int shuffleMode=-1,historyIndex=-1;
 };

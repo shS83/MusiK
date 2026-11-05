@@ -27,6 +27,7 @@ from .fog_qt import FogShSVisualizer
 from .folders import choose_folders
 from .settings import SettingsDialog, THEMES, EFFECTS, GRADIENTS, default_store, load_settings
 from .gl_backend import apply_backend
+from .seek_slider import SeekSlider
 from .metadata import MetadataPlaylist, MetadataDialog
 import ctypes
 
@@ -254,6 +255,7 @@ class MainWindow(QMainWindow):
         self.playlist.itemDoubleClicked.connect(self.play_item)
         self.playlist.itemSelectionChanged.connect(self.update_controls)
         self.seek.sliderReleased.connect(self.seek_to)
+        self.seek.track_clicked.connect(lambda _value: self.seek_to())
         QShortcut(QKeySequence("Space"), self, activated=self.toggle_play)
         QShortcut(QKeySequence("Delete"), self.playlist, activated=self.remove_files)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.add_files)
@@ -372,7 +374,7 @@ class MainWindow(QMainWindow):
         timeline = QHBoxLayout()
         self.elapsed = QLabel("0:00", objectName="muted")
         self.duration = QLabel("0:00", objectName="muted")
-        self.seek = QSlider(Qt.Orientation.Horizontal)
+        self.seek = SeekSlider(Qt.Orientation.Horizontal)
         self.seek.setRange(0, 0)
         self.seek.setAccessibleName("Playback position")
         timeline.addWidget(self.elapsed)

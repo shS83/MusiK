@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QToolBar>
 #include <QSurfaceFormat>
+#include <QLibraryInfo>
 #include <QDateTime>
 #include <QVector2D>
 #include <QVector3D>
@@ -85,6 +86,36 @@
 #endif
 
 struct SoundState { float energy=0,mid=0,treble=0,pulse=0; };
+static QList<QPair<QString,QString>> availableGlBackends(){
+    QList<QPair<QString,QString>> choices{{"auto","Automatic (use launch environment)"}};
+#ifdef Q_OS_LINUX
+    const QString plugins=QLibraryInfo::path(QLibraryInfo::PluginsPath);
+    if(!qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") && QFile::exists(plugins+"/platforms/libqwayland.so"))
+        choices.append(qMakePair(QStringLiteral("wayland_egl"),QStringLiteral("Wayland / EGL")));
+    if(!qEnvironmentVariableIsEmpty("DISPLAY") && QFile::exists(plugins+"/platforms/libqxcb.so")){
+        if(QFile::exists(plugins+"/xcbglintegrations/libqxcb-glx-integration.so")){
+            choices.append(qMakePair(QStringLiteral("x11_glx"),QStringLiteral("X11 / GLX")));
+            if(QFile::exists("/usr/lib/dri/swrast_dri.so") || QFile::exists("/usr/lib64/dri/swrast_dri.so"))
+                choices.append(qMakePair(QStringLiteral("software_glx"),QStringLiteral("X11 / GLX (Mesa software)")));
+        }
+        if(QFile::exists(plugins+"/xcbglintegrations/libqxcb-egl-integration.so"))
+            choices.append(qMakePair(QStringLiteral("x11_egl"),QStringLiteral("X11 / EGL")));
+    }
+#endif
+    return choices;
+}
+static void applyGlBackend(const QString &key){
+    if(key=="auto")return;
+    if(key=="wayland_egl"){
+        qputenv("QT_QPA_PLATFORM","wayland");
+        qunsetenv("QT_XCB_GL_INTEGRATION");
+    }else if(key=="x11_glx" || key=="x11_egl" || key=="software_glx"){
+        qputenv("QT_QPA_PLATFORM","xcb");
+        qputenv("QT_XCB_GL_INTEGRATION",key=="x11_egl"?"xcb_egl":"xcb_glx");
+    }else return;
+    if(key=="software_glx")qputenv("LIBGL_ALWAYS_SOFTWARE","1");
+    else qunsetenv("LIBGL_ALWAYS_SOFTWARE");
+}
 static constexpr float pi=3.14159265358979323846f;
 // C++ port of musik/lasers.py LaserScene (five distinct variants).
 class LaserScene {
@@ -410,17 +441,71 @@ protected:
     // Predator/prey simulation. Coordinates are normalized by viewport height.
     // No flies spawn in view: respawns enter from just beyond the four edges.
     float bioRand(float lo,float hi){return lo+(hi-lo)*float(rng()%100000)/99999.f;}
-    QVector2D bioEdgePoint(){
+    QVector2D bioEdgePoint(bool cell=false){
         const float aspect=float(std::max(1,width()))/float(std::max(1,height()));
+        const float margin=cell?.14f:.07f;
         switch(rng()%4){
-            case 0:return QVector2D(-.5f*aspect-.07f,bioRand(-.55f,.55f));
-            case 1:return QVector2D( .5f*aspect+.07f,bioRand(-.55f,.55f));
-            case 2:return QVector2D(bioRand(-.55f*aspect,.55f*aspect),-.57f);
-            default:return QVector2D(bioRand(-.55f*aspect,.55f*aspect),.57f);
+            case 0:return QVector2D(-.5f*aspect-margin,bioRand(-.55f,.55f));
+            case 1:return QVector2D( .5f*aspect+margin,bioRand(-.55f,.55f));
+            case 2:return QVector2D(bioRand(-.55f*aspect,.55f*aspect),-.5f-margin);
+            default:return QVector2D(bioRand(-.55f*aspect,.55f*aspect),.5f+margin);
         }
+    }
+    bool burstBiolume(int cell){
+        int group=-1;
+        for(int g=0;g<2;g++){
+            bool active=false;
+            for(int i=g*36;i<(g+1)*36;i++)if(bioFragments[i].w()>0.f){active=true;break;}
+            if(!active){group=g;break;}
+        }
+        if(group<0)return false;
+        const float aspect=float(std::max(1,width()))/float(std::max(1,height()));
+        QVector2D center(bioCells[cell].x(),bioCells[cell].y());
+        QVector3D pigment=bioCellColor[cell];
+        bioBurstColor[group]=pigment;
+        for(int i=0;i<36;i++){
+            int slot=group*36+i;
+            float angle=2.f*pi*(i+bioRand(-.2f,.2f))/36.f;
+            QVector2D direction(std::cos(angle),std::sin(angle));
+            float radius=bioRand(.008f,.016f);
+            QVector2D position=center+direction*bioRand(0.f,.045f);
+            bioFragments[slot]=QVector4D(position.x(),position.y(),radius,1.f);
+            bioFragmentVelocity[slot]=direction*bioRand(.14f,.31f);
+            bioFragmentRadius[slot]=radius;
+            bioFragmentDuration[slot]=bioRand(2.4f,3.8f);
+        }
+        int freeSparks=0;
+        for(const auto &spark:bioSparks)if(spark.w()<=0.f)freeSparks++;
+        int sparkCount=std::min(24,freeSparks),emitted=0;
+        for(int slot=0;slot<64 && emitted<sparkCount;slot++){
+            if(bioSparks[slot].w()>0.f)continue;
+            float angle=2.f*pi*(emitted+bioRand(-.3f,.3f))/float(sparkCount);
+            QVector2D direction(std::cos(angle),std::sin(angle));
+            QVector2D position=center+direction*bioRand(0.f,.025f);
+            bioSparks[slot]=QVector4D(position.x(),position.y(),bioRand(.0012f,.0028f),1.f);
+            bioSparkVelocity[slot]=direction*bioRand(.20f,.55f);
+            bioSparkDuration[slot]=bioRand(.65f,1.45f);
+            emitted++;
+        }
+        for(auto &g:bioGlows)if(g.w()<=0){g=QVector4D(center.x(),center.y(),4.f,1.f);break;}
+        for(int i=0;i<48;i++)if(bioFlyOwner[i]==cell){
+            bioFlyOwner[i]=-1;bioFlyAge[i]=0;bioFlies[i].setW(1.f);
+        }
+        QVector2D edge=bioEdgePoint(true);
+        bioCells[cell]=QVector4D(edge.x(),edge.y(),bioRand(.045f,.06f),.13f);
+        bioCellVelocity[cell]=QVector2D(bioRand(-.07f,.07f),bioRand(-.07f,.07f));
+        static const QVector3D palette[]={QVector3D(.12f,.47f,1.f),QVector3D(.55f,.15f,1.f),QVector3D(.08f,.72f,.94f),QVector3D(.75f,.18f,.85f)};
+        bioCellColor[cell]=palette[cell%4];
+        bioPigmentWeight[cell]=7.f;
+        bioPigmentSum[cell]=palette[cell%4]*7.f;
+        bioCellCooldown[cell]=2.f;
+        return true;
     }
     void updateBiolume(float dt){
         dt=std::clamp(dt,0.f,.035f);
+        static const QVector3D palette[]={QVector3D(.12f,.47f,1.f),QVector3D(.55f,.15f,1.f),QVector3D(.08f,.72f,.94f),QVector3D(.75f,.18f,.85f)};
+        static const QVector3D flyPalette[]={QVector3D(.08f,.84f,1.f),QVector3D(.18f,.96f,.32f),
+                                              QVector3D(1.f,.82f,.12f),QVector3D(1.f,.18f,.12f)};
         const float aspect=float(std::max(1,width()))/float(std::max(1,height()));
         const float bass=std::clamp(sound.energy,0.f,1.f);
         const float treble=std::clamp(sound.treble,0.f,1.f);
@@ -429,9 +514,11 @@ protected:
                 float a=2*pi*(i+.3f)/8.f;
                 bioCells[i]=QVector4D(.34f*aspect*std::cos(a),.36f*std::sin(a),bioRand(.048f,.078f),.13f);
                 bioCellVelocity[i]=QVector2D(bioRand(-.08f,.08f),bioRand(-.08f,.08f));
-                static const QVector3D palette[]={QVector3D(.12f,.47f,1.f),QVector3D(.55f,.15f,1.f),QVector3D(.08f,.72f,.94f),QVector3D(.75f,.18f,.85f)};
                 bioCellColor[i]=palette[i%4];
+                bioPigmentWeight[i]=7.f;
+                bioPigmentSum[i]=palette[i%4]*7.f;
                 bioCellCooldown[i]=0.f;
+                bioMergeTarget[i]=-1;
             }
             for(int i=0;i<48;i++){
                 QVector2D edge=bioEdgePoint();
@@ -444,11 +531,31 @@ protected:
             bioReady=true;
         }
         bioSeconds+=dt;
+        bioPulse=std::max(std::clamp(sound.pulse,0.f,1.f),bioPulse*std::exp(-dt*6.f));
         for(auto &g:bioGlows)g.setW(std::max(0.f,g.w()-dt*.75f));
+        for(int i=0;i<72;i++){
+            auto &fragment=bioFragments[i];
+            if(fragment.w()<=0.f)continue;
+            fragment.setX(fragment.x()+bioFragmentVelocity[i].x()*dt);
+            fragment.setY(fragment.y()+bioFragmentVelocity[i].y()*dt);
+            bioFragmentVelocity[i]*=std::exp(-dt*.45f);
+            fragment.setW(std::max(0.f,fragment.w()-dt/bioFragmentDuration[i]));
+            fragment.setZ(bioFragmentRadius[i]*fragment.w());
+        }
+        for(int i=0;i<64;i++){
+            auto &spark=bioSparks[i];
+            if(spark.w()<=0.f)continue;
+            spark.setX(spark.x()+bioSparkVelocity[i].x()*dt);
+            spark.setY(spark.y()+bioSparkVelocity[i].y()*dt);
+            bioSparkVelocity[i]*=std::exp(-dt*1.1f);
+            spark.setW(std::max(0.f,spark.w()-dt/bioSparkDuration[i]));
+            spark.setZ(spark.z()*std::exp(-dt*.6f));
+        }
         // Move each distinct predator toward its nearest free firefly.
         for(int c=0;c<8;c++){
             auto &cell=bioCells[c];
             QVector2D pos(cell.x(),cell.y()),desired(0,0);
+            bool wasInside=std::abs(pos.x())<=.5f*aspect-.035f && std::abs(pos.y())<=.46f;
             float nearest=1e6f;
             for(int i=0;i<48;i++){
                 if(bioFlyOwner[i]>=0)continue;
@@ -458,19 +565,63 @@ protected:
             }
             QVector2D v=bioCellVelocity[c];
             if(desired.lengthSquared()>.000001f)desired.normalize();
+            float phase=bioSeconds*.38f+c*2.39996f;
+            QVector2D towardMiddle(.16f*aspect*std::sin(phase)-pos.x(),.15f*std::cos(phase*1.13f)-pos.y());
+            if(towardMiddle.lengthSquared()>.000001f)towardMiddle.normalize();
+            desired=nearest<.28f*.28f ? desired*.78f+towardMiddle*.22f : towardMiddle;
+            if(!wasInside)desired=towardMiddle;
+            if(desired.lengthSquared()>.000001f)desired.normalize();
             desired*=.14f+.07f*bass+.045f*sound.pulse;
             // Steering is smooth, with an independently moving organic wobble.
             QVector2D wiggle(std::sin(bioSeconds*.91f+c*2.8f),std::cos(bioSeconds*.77f+c*1.9f));
             v+=(desired+wiggle*.028f-v)*std::min(1.f,dt*1.7f);
             pos+=v*dt;
-            if(pos.x() < -.5f*aspect+.035f || pos.x() > .5f*aspect-.035f)v.setX(-v.x());
-            if(pos.y() < -.46f || pos.y() > .46f)v.setY(-v.y());
-            pos.setX(std::clamp(pos.x(),-.5f*aspect+.035f,.5f*aspect-.035f));
-            pos.setY(std::clamp(pos.y(),-.46f,.46f));
+            if(wasInside){
+                if(pos.x() < -.5f*aspect+.035f || pos.x() > .5f*aspect-.035f)v.setX(-v.x());
+                if(pos.y() < -.46f || pos.y() > .46f)v.setY(-v.y());
+                pos.setX(std::clamp(pos.x(),-.5f*aspect+.035f,.5f*aspect-.035f));
+                pos.setY(std::clamp(pos.y(),-.46f,.46f));
+            }
             bioCellVelocity[c]=v;
             cell.setX(pos.x());cell.setY(pos.y());
+            cell.setZ(std::min(.18f,cell.z()+dt*(.0011f+.0014f*bass)));
             cell.setW(std::max(.06f,cell.w()-dt*.025f));
             bioCellCooldown[c]=std::max(0.f,bioCellCooldown[c]-dt);
+        }
+        // Pull the smaller membrane into the larger one while its area transfers.
+        for(int small=0;small<8;small++){
+            int big=bioMergeTarget[small];
+            if(big<0)continue;
+            auto &prey=bioCells[small],&host=bioCells[big];
+            bioMergeProgress[small]=std::min(1.f,bioMergeProgress[small]+dt/.65f);
+            float x=bioMergeProgress[small],ease=x*x*(3.f-2.f*x);
+            float hostArea=bioMergeHostRadius[small]*bioMergeHostRadius[small];
+            float preyArea=bioMergeRadius[small]*bioMergeRadius[small];
+            float pull=std::min(1.f,dt*(3.f+6.f*x));
+            QVector2D offset(prey.x()-host.x(),prey.y()-host.y());
+            QVector2D hostPos(host.x(),host.y()),preyPos(prey.x(),prey.y());
+            hostPos+=offset*(pull*preyArea/(hostArea+preyArea));
+            preyPos-=offset*(pull*hostArea/(hostArea+preyArea));
+            host.setX(hostPos.x());host.setY(hostPos.y());
+            prey.setX(preyPos.x());prey.setY(preyPos.y());
+            prey.setZ(std::max(.002f,bioMergeRadius[small]*(1.f-ease)));
+            host.setZ(std::min(.17f,std::sqrt(bioMergeHostRadius[small]*bioMergeHostRadius[small]
+                +.65f*bioMergeRadius[small]*bioMergeRadius[small]*ease)));
+            bioCellColor[big]=(bioPigmentSum[big]+bioPigmentSum[small]*ease)/
+                (bioPigmentWeight[big]+bioPigmentWeight[small]*ease);
+            if(x<1.f)continue;
+            bioPigmentSum[big]+=bioPigmentSum[small];
+            bioPigmentWeight[big]+=bioPigmentWeight[small];
+            host.setW(std::min(1.5f,host.w()+prey.w()*.7f));
+            for(auto &g:bioGlows)if(g.w()<=0){g=QVector4D(host.x(),host.y(),4.f,1.f);break;}
+            QVector2D edge=bioEdgePoint(true);prey=QVector4D(edge.x(),edge.y(),bioRand(.045f,.065f),.14f);
+            bioPigmentWeight[small]=7.f;
+            bioPigmentSum[small]=palette[small%4]*7.f;
+            bioCellColor[small]=palette[small%4];
+            bioCellVelocity[small]=QVector2D(bioRand(-.07f,.07f),bioRand(-.07f,.07f));
+            bioCellCooldown[big]=2.5f;bioCellCooldown[small]=3.f;
+            for(int f=0;f<48;f++)if(bioFlyOwner[f]==small)bioFlyOwner[f]=big;
+            bioMergeTarget[small]=-1;
         }
         // Flee instead of approaching the organisms. Predators have higher top speed.
         for(int i=0;i<48;i++){
@@ -506,9 +657,12 @@ protected:
             f=QVector4D(pos.x(),pos.y(),angle,1.f);
             if(dist<bioCells[nearest].z()*.75f){
                 bioFlyOwner[i]=nearest;bioFlyAge[i]=0;
-                bioCells[nearest].setZ(std::min(.155f,bioCells[nearest].z()+.0019f));
+                bioCells[nearest].setZ(std::min(.18f,bioCells[nearest].z()+.0025f));
                 bioCells[nearest].setW(std::min(1.5f,bioCells[nearest].w()+.16f));
-                for(auto &g:bioGlows)if(g.w()<=0){g=QVector4D(pos.x(),pos.y(),0,1.f);break;}
+                bioPigmentSum[nearest]+=flyPalette[i%4];
+                bioPigmentWeight[nearest]+=1.f;
+                bioCellColor[nearest]=bioPigmentSum[nearest]/bioPigmentWeight[nearest];
+                for(auto &g:bioGlows)if(g.w()<=0){g=QVector4D(pos.x(),pos.y(),float(i%4),1.f);break;}
             }else if(std::abs(pos.x())>.5f*aspect+.17f || std::abs(pos.y())>.67f){
                 QVector2D edge=bioEdgePoint(); f.setX(edge.x());f.setY(edge.y());
             }
@@ -518,18 +672,23 @@ protected:
             auto &A=bioCells[a],&B=bioCells[b];
             float dx=A.x()-B.x(),dy=A.y()-B.y();
             float distance=std::sqrt(dx*dx+dy*dy);
-            if(distance>(A.z()+B.z())*.70f || bioCellCooldown[a]>0 || bioCellCooldown[b]>0)continue;
+            if(distance>(A.z()+B.z())*.82f || bioCellCooldown[a]>0 || bioCellCooldown[b]>0 ||
+                bioMergeTarget[a]>=0 || bioMergeTarget[b]>=0)continue;
+            bool occupied=false;
+            for(int target:bioMergeTarget)if(target==a || target==b){occupied=true;break;}
+            if(occupied)continue;
             int big=A.z()>=B.z()?a:b,small=big==a?b:a;
-            auto &predator=bioCells[big];auto &prey=bioCells[small];
-            float oldArea=predator.z()*predator.z(),preyArea=prey.z()*prey.z();
-            bioCellColor[big]=(bioCellColor[big]*oldArea+bioCellColor[small]*preyArea)/(oldArea+preyArea);
-            predator.setZ(std::min(.17f,std::sqrt(oldArea+preyArea*.65f)));
-            predator.setW(std::min(1.5f,predator.w()+prey.w()*.7f));
-            for(auto &g:bioGlows)if(g.w()<=0){g=QVector4D(predator.x(),predator.y(),0,1.f);break;}
-            QVector2D edge=bioEdgePoint();prey=QVector4D(edge.x(),edge.y(),bioRand(.045f,.065f),.14f);
-            bioCellVelocity[small]=QVector2D(bioRand(-.07f,.07f),bioRand(-.07f,.07f));
-            bioCellCooldown[big]=2.5f;bioCellCooldown[small]=3.f;
-            for(int f=0;f<48;f++)if(bioFlyOwner[f]==small)bioFlyOwner[f]=big;
+            bioMergeTarget[small]=big;
+            bioMergeProgress[small]=0.f;
+            bioMergeRadius[small]=bioCells[small].z();
+            bioMergeHostRadius[small]=bioCells[big].z();
+        }
+        for(int c=0;c<8;c++){
+            if(bioCells[c].z()<.13f || bioMergeTarget[c]>=0 ||
+                std::abs(bioCells[c].x())>=.5f*aspect-.18f || std::abs(bioCells[c].y())>=.32f)continue;
+            bool merging=false;
+            for(int target:bioMergeTarget)if(target==c){merging=true;break;}
+            if(!merging)burstBiolume(c);
         }
     }
     QColor fireworksColor(){
@@ -828,11 +987,14 @@ protected:
                 program->setUniformValue("u_time",now*.001f);
                 program->setUniformValue("u_bass",sound.energy);
                 program->setUniformValue("u_treble",sound.treble);
-                program->setUniformValue("u_pulse",sound.pulse);
+                program->setUniformValue("u_pulse",bioPulse);
                 program->setUniformValueArray("u_cells",bioCells.data(),8);
                 program->setUniformValueArray("u_flies",bioFlies.data(),48);
                 program->setUniformValueArray("u_cellColors",bioCellColor.data(),8);
                 program->setUniformValueArray("u_glows",bioGlows.data(),16);
+                program->setUniformValueArray("u_fragments",bioFragments.data(),72);
+                program->setUniformValueArray("u_burstColors",bioBurstColor.data(),2);
+                program->setUniformValueArray("u_sparks",bioSparks.data(),64);
             }
             else if(effect==0){float desired=std::clamp(sound.pulse,0.f,1.f);float tau=desired>kickEnvelope?.020f:.180f;kickEnvelope+=(desired-kickEnvelope)*(1-std::exp(-dt/tau));program->setUniformValue("u_kick",kickEnvelope);program->setUniformValue("u_resolution",QVector2D(w,h));program->setUniformValue("u_time",now*.001f);program->setUniformValue("u_density",1.4f);program->setUniformValue("u_speed",1.f);program->setUniformValue("u_pulse",sound.pulse);program->setUniformValue("u_flash",QVector3D(.7f,.2f,.8f));program->setUniformValue("u_mid",sound.mid);program->setUniformValue("u_treble",sound.treble);}
             else {program->setUniformValue("uResolution",QVector2D(w,h));program->setUniformValue("uTime",phase);program->setUniformValue("uCamera",QVector3D(.18f*std::sin(phase*.23f),.15f*std::cos(phase*.19f),travel));program->setUniformValue("uForward",QVector3D(0,0,1));program->setUniformValue("uRight",QVector3D(std::cos(phase*.08f),std::sin(phase*.08f),0));program->setUniformValue("uUp",QVector3D(-std::sin(phase*.08f),std::cos(phase*.08f),0));program->setUniformValue("uPaletteFrom",1);program->setUniformValue("uPaletteTo",1);program->setUniformValue("uPaletteMix",0.f);program->setUniformValue("uFlash",std::min(.65f,sound.pulse*.65f));}
@@ -849,14 +1011,26 @@ private:
     bool fireworksDebug=false;
     int fireLaunchCount=0;bool fireworksReady=false;float fireSpawnTimer=0,fireSeconds=0;
     std::array<QVector4D,8> bioCells{};
+    std::array<int,8> bioMergeTarget{};
+    std::array<float,8> bioMergeProgress{},bioMergeRadius{},bioMergeHostRadius{};
     std::array<QVector2D,8> bioCellVelocity{};
     std::array<QVector3D,8> bioCellColor{};
+    std::array<QVector3D,8> bioPigmentSum{};
+    std::array<float,8> bioPigmentWeight{};
     std::array<float,8> bioCellCooldown{};
     std::array<QVector2D,48> bioFlyVelocity{};
     std::array<int,48> bioFlyOwner{};
     std::array<float,48> bioFlyAge{};
     std::array<QVector4D,48> bioFlies{};
     std::array<QVector4D,16> bioGlows{};
+    std::array<QVector4D,72> bioFragments{};
+    std::array<QVector3D,2> bioBurstColor{};
+    std::array<QVector2D,72> bioFragmentVelocity{};
+    std::array<float,72> bioFragmentRadius{},bioFragmentDuration{};
+    std::array<QVector4D,64> bioSparks{};
+    std::array<QVector2D,64> bioSparkVelocity{};
+    std::array<float,64> bioSparkDuration{};
+    float bioPulse=0.f;
     bool bioReady=false;float bioSeconds=0;
     QTimer timer;QElapsedTimer clock; qint64 last=0;
     bool borderless=false;QRect savedGeometry;Qt::WindowFlags savedFlags;
@@ -1096,6 +1270,17 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             auto *form=new QFormLayout(general);
             OutputControls audioControls(new QFormLayout(audio),route->choice());
             auto *choice=new QComboBox;choice->addItems(Visual::names());choice->setCurrentIndex(effects->currentIndex());form->addRow("Visualization",choice);
+            QSettings glSettings(QSettings::defaultFormat(),QSettings::UserScope,"MusiK","MusiKCpp");
+            const QString savedBackend=glSettings.value("gl_backend","auto").toString();
+            auto *backendChoice=new QComboBox;
+            for(const auto &entry:availableGlBackends())backendChoice->addItem(entry.second,entry.first);
+            if(backendChoice->findData(savedBackend)<0)backendChoice->addItem(savedBackend+" (unavailable here)",savedBackend);
+            backendChoice->setCurrentIndex(backendChoice->findData(savedBackend));
+            form->addRow("OpenGL backend",backendChoice);
+            auto *backendHint=new QLabel("Current Qt platform: "+QGuiApplication::platformName()+
+                ". Changing the OpenGL backend takes effect after restarting MusiK.");
+            backendHint->setWordWrap(true);
+            form->addRow("",backendHint);
             auto *beats=new QComboBox;beats->addItems({"2 bars (8 beats)","4 bars (16 beats)","8 bars (32 beats)"});beats->setCurrentIndex(paletteSelection);form->addRow("Laser palette cycle",beats);
             auto *sorting=new QComboBox;sorting->addItems({"Manual / insertion","Title A-Z","Title Z-A","Path A-Z"});sorting->setCurrentIndex(sortSelection);form->addRow("Sort playlist",sorting);
             auto *ordering=new QComboBox;ordering->addItems({"Normal","Reversed","Shuffle (tracks)","Shuffle (albums)","Random"});ordering->setCurrentIndex(orderSelection);form->addRow("Playback order",ordering);
@@ -1109,6 +1294,10 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             auto *apply=new QPushButton("Apply");layout->addWidget(apply);
             QObject::connect(apply,&QPushButton::clicked,&dialog,&QDialog::accept);
             if(dialog.exec()!=QDialog::Accepted)return;
+            const QString selectedBackend=backendChoice->currentData().toString();
+            glSettings.setValue("gl_backend",selectedBackend);
+            glSettings.sync();
+            if(selectedBackend!=savedBackend)status->setText("OpenGL backend saved. Restart MusiK to use it.");
             route->configure(audioControls.value());route->choice().save();
             effects->setCurrentIndex(choice->currentIndex());paletteSelection=beats->currentIndex();visual.setPaletteBeats(8<<paletteSelection);
             const bool sortChanged=sortSelection!=sorting->currentIndex();
@@ -1345,6 +1534,9 @@ private:
 int main(int argc, char **argv) {
     QElapsedTimer startup;
     startup.start();
+
+    QSettings glSettings(QSettings::defaultFormat(),QSettings::UserScope,"MusiK","MusiKCpp");
+    applyGlBackend(glSettings.value("gl_backend","auto").toString());
 
     QSurfaceFormat fmt;
     fmt.setVersion(3, 3);

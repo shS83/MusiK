@@ -22,8 +22,11 @@ from .library import AUDIO_FILE_FILTER, FolderScanner
 from .playlist import load_playlist, save_playlist
 from .visualizer import Visualizer
 from .effects import EffectVisualizer
+from .circler_qt import CirclerVisualizer
+from .fog_qt import FogShSVisualizer
 from .folders import choose_folders
 from .settings import SettingsDialog, THEMES, EFFECTS, GRADIENTS, default_store, load_settings
+from .gl_backend import apply_backend
 from .metadata import MetadataPlaylist, MetadataDialog
 import ctypes
 
@@ -503,6 +506,7 @@ class MainWindow(QMainWindow):
     def apply_settings(self, values, persist=True):
         old = self.preferences
         values = dict(values)
+        values.setdefault("gl_backend", old.get("gl_backend", "auto"))
         if values["order"] == 4:
             values["order"] = 0
         self.preferences = values
@@ -557,6 +561,8 @@ class MainWindow(QMainWindow):
             for key, value in values.items():
                 self.settings_store.setValue(key, value)
             self.settings_store.sync()
+            if old.get("gl_backend", "auto") != values["gl_backend"]:
+                self.statusBar().showMessage("OpenGL backend saved. Restart MusiK to use it.")
 
     def sort_playlist(self, restore_manual=False):
         order = self.preferences["order"]
@@ -596,6 +602,9 @@ class MainWindow(QMainWindow):
         if isinstance(visual, EffectVisualizer):
             self.analysis.energy.disconnect(visual.on_energy)
             self.analysis.phrase.disconnect(visual.on_phrase)
+        elif isinstance(visual, FogShSVisualizer):
+            self.analysis.energy.disconnect(visual.on_energy)
+            self.analysis.waveform.disconnect(visual.on_waveform)
         visual.removeEventFilter(self)
         visual.close()
         visual.deleteLater()
@@ -989,12 +998,18 @@ class MainWindow(QMainWindow):
             geometry = self.visualizer.borderless.geometry if fullscreen else self.visualizer.geometry()
             self.dispose_visualizer()
         if self.visualizer is None:
-            self.visualizer = Visualizer(self) if effect == 0 else EffectVisualizer(effect, self)
+            self.visualizer = (CirclerVisualizer(self) if effect == EFFECTS.index("Circler Tetra")
+                               else FogShSVisualizer(self) if effect == EFFECTS.index("fog_shS")
+                               else Visualizer(self) if effect == 0
+                               else EffectVisualizer(effect, self))
             self.visualizer_effect = effect
             self.visualizer.installEventFilter(self)
-            if effect:
+            if isinstance(self.visualizer, EffectVisualizer):
                 self.analysis.energy.connect(self.visualizer.on_energy)
                 self.analysis.phrase.connect(self.visualizer.on_phrase)
+            elif isinstance(self.visualizer, FogShSVisualizer):
+                self.analysis.energy.connect(self.visualizer.on_energy)
+                self.analysis.waveform.connect(self.visualizer.on_waveform)
             self.analysis.beat.connect(self.visualizer.on_beat)
             self.analysis.bands.connect(self.visualizer.on_bands)
             self.visualizer.failed.connect(self.visualizer_failed)
@@ -1052,6 +1067,7 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    apply_backend(str(default_store().value("gl_backend", "auto")))
     fmt = QSurfaceFormat()
     fmt.setVersion(3, 3)
     fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)

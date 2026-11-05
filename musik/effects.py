@@ -152,7 +152,7 @@ class EffectVisualizer(Visualizer):
             self.bio.step(dt, aspect, energy, treble, pulse)
             self.bio.upload(self.program)
             for name, value in (("u_resolution",size),("u_time",now-self.started),("u_bass",energy),
-                                ("u_treble",treble),("u_pulse",pulse)):
+                                ("u_treble",treble),("u_pulse",self.bio.pulse)):
                 if name in self.program:
                     self.program[name].value = value
             self.vao.render(moderngl.TRIANGLES, vertices=3)

@@ -188,3 +188,15 @@ uv run python -m tests.smoke_desktop
 
 Qt:n äänipuskurirajapinta:
 [QAudioBufferOutput](https://doc.qt.io/QT-6/qaudiobufferoutput.html).
+
+## Circler Tetra
+
+The Python visualizer includes **Circler Tetra** (Settings → Visualization).
+Tetrahedra spiral/grow as in the original Circler; bass triggers a radial
+jump and restrained white flash. New neon colors arrive after every 16
+detected hits; the background cycles deep blue → yellow → red. See
+`CIRCLER-TETRA.md` for testing and parameters.
+
+## fog_shS visualization
+
+The new **fog_shS** effect follows Circler Tetra in Settings → Visualization. See [FOG-SHS.md](FOG-SHS.md) for audio-driven 3D contour behavior, rendering requirements, and testing instructions.

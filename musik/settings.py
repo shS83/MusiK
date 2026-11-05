@@ -1,5 +1,6 @@
 """Persistent player preferences and a fixed, seeded set of gradient themes."""
 from .audio_output import OutputControls, WIDTHS
+from .gl_backend import BACKEND_LABELS, available_backends
 
 import colorsys
 import random
@@ -7,7 +8,7 @@ import random
 from PySide6.QtCore import QSettings, QSize
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QTabWidget, QWidget, QCheckBox, QColorDialog, QPushButton, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QSpinBox, QVBoxLayout,
+    QApplication, QTabWidget, QWidget, QCheckBox, QColorDialog, QPushButton, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QSpinBox, QVBoxLayout,
 )
 
 
@@ -30,7 +31,7 @@ def make_themes():
 THEMES = make_themes()
 ORDERS = ("Manual / import order", "Title A–Z", "Title Z–A", "Folder / filename")
 EFFECTS = ("Chrome sphere", "PsyTunnel", "Hiss", "Matrixia",
-           "Orbit Streams", "Glyph Spin", "Glyph Trails", "Biolume", "Fireworks")
+           "Orbit Streams", "Glyph Spin", "Glyph Trails", "Biolume", "Fireworks", "Circler Tetra", "fog_shS")
 PLAYBACK = ("Normal", "Reversed", "Shuffle tracks", "Shuffle albums (folders)", "Random")
 DISPLAY = ("Oscilloscope", "Spectrum analyzer", "Combo (half + half)")
 GRADIENTS = (("Player theme", None), ("Black → White", ("#000000","#ffffff")),
@@ -38,7 +39,7 @@ GRADIENTS = (("Player theme", None), ("Black → White", ("#000000","#ffffff")),
              ("Coral → Midnight violet", ("#ff6e55","#230850")), ("Lime → Deep teal", ("#beff14","#032830")),
              ("Electric pink → Midnight blue", ("#ff28b4","#061246")), ("Golden orange → Deep burgundy", ("#ffa01e","#460823")),
              ("Custom colors", None))
-DEFAULTS = {"output_device": "", "output_width": "auto", "output_rate": 0, "playback": 0, "display": 0, "gradient": 0, "reverse": 0, "custom_start": "#ff00ff", "custom_end": "#ff9600","scope_points": 512, "spectrum_bands": 48, "order": 0, "theme": 0, "effect": 0, "laser_bars": 4}
+DEFAULTS = {"output_device": "", "output_width": "auto", "output_rate": 0, "playback": 0, "display": 0, "gradient": 0, "reverse": 0, "custom_start": "#ff00ff", "custom_end": "#ff9600","scope_points": 512, "spectrum_bands": 48, "order": 0, "theme": 0, "effect": 0, "laser_bars": 4, "gl_backend": "auto"}
 LIMITS = {"playback": (0, 4), "display": (0, 2), "gradient": (0, 8), "reverse": (0,1), "scope_points": (64, 4096), "spectrum_bands": (8, 2048), "order": (0, 3),
           "theme": (0, 19), "effect": (0, len(EFFECTS) - 1), "laser_bars": (2, 8)}
 
@@ -46,6 +47,10 @@ LIMITS = {"playback": (0, 4), "display": (0, 2), "gradient": (0, 8), "reverse": 
 def load_settings(store):
     values = {}
     for key, default in DEFAULTS.items():
+        if key == "gl_backend":
+            value = str(store.value(key, default))
+            values[key] = value if value in BACKEND_LABELS else default
+            continue
         if key in ("output_device", "output_width"):
             value = str(store.value(key, default))
             values[key] = value if key == "output_device" or value in WIDTHS else default
@@ -117,6 +122,17 @@ class SettingsDialog(QDialog):
         self.effect.addItems(EFFECTS)
         self.effect.setCurrentIndex(values["effect"])
         form.addRow("Visualization", self.effect)
+        self.gl_backend = QComboBox()
+        for key, label in available_backends():
+            self.gl_backend.addItem(label, key)
+        if self.gl_backend.findData(values["gl_backend"]) < 0:
+            self.gl_backend.addItem(BACKEND_LABELS[values["gl_backend"]] + " (unavailable here)", values["gl_backend"])
+        self.gl_backend.setCurrentIndex(self.gl_backend.findData(values["gl_backend"]))
+        form.addRow("OpenGL backend", self.gl_backend)
+        active_platform = QApplication.platformName() if QApplication.instance() else "not started"
+        gl_hint = QLabel(f"Current Qt platform: {active_platform}. Changing the OpenGL backend takes effect after restarting MusiK.")
+        gl_hint.setWordWrap(True)
+        form.addRow("", gl_hint)
         self.laser_bars = QComboBox()
         self.laser_bars.addItem("Every 2 bars", 2)
         self.laser_bars.addItem("Every 4 bars", 4)
@@ -167,4 +183,5 @@ class SettingsDialog(QDialog):
         return {**self.audio_controls.values(), **self.custom, "playback":self.playback.currentIndex(), "display":self.display.currentIndex(),
                 "gradient":self.gradient.currentIndex(), "reverse":int(self.reverse.isChecked()), "scope_points": self.scope_points.value(), "spectrum_bands": self.spectrum_bands.value(),
                 "order": self.order.currentIndex(), "theme": self.theme.currentIndex(),
-                "effect": self.effect.currentIndex(), "laser_bars": self.laser_bars.currentData()}
+                "effect": self.effect.currentIndex(), "laser_bars": self.laser_bars.currentData(),
+                "gl_backend": self.gl_backend.currentData()}

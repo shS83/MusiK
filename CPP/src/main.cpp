@@ -1,6 +1,8 @@
 #include <QTabWidget>
 #include "audio_output.h"
 #include "circler_scene.h"
+#include "fog_scene.h"
+#include "crawler_scene.h"
 #include "seek_slider.h"
 #include <QToolTip>
 #include <QApplication>
@@ -252,11 +254,12 @@ public:
         clock.start(); last=clock.elapsed();
     }
     static int laserVariant(int value){return value==4?1:(value==5?3:4);}
-    void setEffect(int value) { if(effect!=value && value==9)circler.reset(); effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
-    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks","Circler Tetra"};}
+    void setEffect(int value) { if(effect!=value && value==9)circler.reset(); if(effect!=value && value==10)fog.reset(); if(effect!=value && value==11)crawler.reset(); effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
+    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks","Circler Tetra","fog_shS","Crawler"};}
     void setSound(SoundState s){ sound=s; }
+    void setWaveform(const QVector<float> &samples){fog.setWaveform(samples);}
     void changeLaserPhrase(){if(laser)laser->phrase();}
-    void beat(){if(laser)laser->onBeat();if(effect==9)circler.beat();}
+    void beat(){if(laser)laser->onBeat();if(effect==9)circler.beat();if(effect==10)fog.beat();if(effect==11)crawler.beat();}
     void setPartyMode(bool enabled){partyMode=enabled;if(laser)laser->setPartyMode(enabled);}
     void setPaletteBeats(int beats){paletteBeats=beats;if(laser)laser->setPaletteBeats(beats);}
 protected:
@@ -358,6 +361,7 @@ protected:
         QTimer::singleShot(250, this, [this](){ printDisplayMode(borderless ? "after borderless" : "after restore"); });
     }
     void keyPressEvent(QKeyEvent *e) override {
+        if(effect==11 && crawler.key(e->key())){update();e->accept();return;}
         if(effect==8 && (e->key()==Qt::Key_section || e->text()==QStringLiteral("§"))){
             fireworksDebug=!fireworksDebug;
             QToolTip::showText(mapToGlobal(QPoint(width()/2,28)),fireworksDebug?"DEBUG MODE ON":"DEBUG MODE OFF",this);
@@ -376,7 +380,7 @@ protected:
     }
     void mousePressEvent(QMouseEvent *e) override {if(effect==3){color=(color+1)%7;glyphCache.clear();update();}QOpenGLWidget::mousePressEvent(e);}
     void initializeGL() override {initializeOpenGLFunctions();glGenVertexArrays(1,&vao);glBindVertexArray(vao);glDisable(GL_DEPTH_TEST);}
-    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();program.reset();cube.reset();circler.release();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
+    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();program.reset();cube.reset();circler.release();fog.release();crawler.release();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
     static QByteArray read(const QString &name){QFile f(QCoreApplication::applicationDirPath()+"/shaders/"+name);if(!f.open(QIODevice::ReadOnly))return {};return f.readAll();}
     std::unique_ptr<QOpenGLShaderProgram> shader(const QString &frag){
         auto p=std::make_unique<QOpenGLShaderProgram>();auto vert=read("scene.vert"),fs=read(frag);
@@ -971,6 +975,25 @@ protected:
         if(effect==7)updateBiolume(dt);
         if(effect==8){updateFireworks(dt);paintFireworks();return;}
         if(effect==9){auto w=std::max(1,qRound(width()*devicePixelRatioF())),h=std::max(1,qRound(height()*devicePixelRatioF()));circler.paint(dt,w,h);return;}
+        if(effect==10 || effect==11){
+            auto w=std::max(1,qRound(width()*devicePixelRatioF())),h=std::max(1,qRound(height()*devicePixelRatioF()));
+            if(effect==10)fog.paint(dt,w,h,defaultFramebufferObject(),sound.energy,sound.mid,sound.treble);
+            else {
+                crawler.paint(dt,w,h,defaultFramebufferObject(),sound.energy,sound.mid,sound.treble);
+                if(crawler.hudVisible()){
+                    QPainter p(this);p.fillRect(QRect(12,12,350,132),QColor(5,5,20,180));
+                    p.setPen(QColor("#a6fcff"));QFont font("Monospace",10);font.setStyleHint(QFont::TypeWriter);p.setFont(font);
+                    const QStringList lines={
+                        QString("CRAWLER  |  %1 balls  |  trail %2").arg(crawler.ballCount()).arg(crawler.trailAlpha()),
+                        "H HUD  SPACE pause  C clear  R reset",
+                        "UP/DOWN balls  LEFT/RIGHT trail",
+                        "B plasma  L bloom  S scanlines  V vignette",
+                        "F11 fullscreen  ESC close"};
+                    for(int i=0;i<lines.size();++i)p.drawText(24,35+i*22,lines[i]);
+                }
+            }
+            return;
+        }
         if(effect>=4 && effect<=6){if(!laser)laser=std::make_unique<LaserScene>(laserVariant(effect));laser->paint(this,dt,sound);return;}
         if(!program)setup();
         if(!program){QPainter p(this);p.fillRect(rect(),QColor("#21132d"));p.setPen(Qt::white);p.drawText(rect(),Qt::AlignCenter,error);return;}
@@ -1043,7 +1066,7 @@ private:
 #endif
     SoundState sound;int effect=0,color=1;float energy=0,speed=0,travel=0,phase=0,kickEnvelope=0;int frames=0;float fpsSeconds=0;bool partyMode=false;int paletteBeats=16;
     std::unique_ptr<QOpenGLShaderProgram> program,cube;GLuint texture=0,fbo=0,vao=0;int fw=0,fh=0;QString error;
-    CirclerScene circler;std::unique_ptr<LaserScene> laser;std::mt19937 rng;std::vector<Stream> streams;std::vector<std::vector<QPixmap>> glyphCache;double pixelRatio=0;
+    CirclerScene circler;FogScene fog;CrawlerScene crawler;std::unique_ptr<LaserScene> laser;std::mt19937 rng;std::vector<Stream> streams;std::vector<std::vector<QPixmap>> glyphCache;double pixelRatio=0;
 };
 
 class ScopeWidget : public QWidget {
@@ -1526,7 +1549,7 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         state.treble=std::clamp(float(high/std::max(1,samples)*6),0.f,1.f);
         state.mid=state.energy;
         state.pulse=state.energy>previous+.055f?1.f:state.pulse*.85f;
-        if(state.pulse>.9f){++beats;visual.beat();if(beats%16==0 && effects->currentIndex()>=4 && effects->currentIndex()<=6)visual.changeLaserPhrase();}visual.setSound(state);scope->setSignal(waveform,spectrumBands);
+        if(state.pulse>.9f){++beats;visual.beat();if(beats%16==0 && effects->currentIndex()>=4 && effects->currentIndex()<=6)visual.changeLaserPhrase();}visual.setSound(state);visual.setWaveform(waveform);scope->setSignal(waveform,spectrumBands);
     }
 private:
     QLineEdit *search;

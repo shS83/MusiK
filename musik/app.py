@@ -24,6 +24,7 @@ from .visualizer import Visualizer
 from .effects import EffectVisualizer
 from .circler_qt import CirclerVisualizer
 from .fog_qt import FogShSVisualizer
+from .crawler_qt import CrawlerVisualizer
 from .folders import choose_folders
 from .settings import SettingsDialog, THEMES, EFFECTS, GRADIENTS, default_store, load_settings
 from .gl_backend import apply_backend
@@ -607,6 +608,8 @@ class MainWindow(QMainWindow):
         elif isinstance(visual, FogShSVisualizer):
             self.analysis.energy.disconnect(visual.on_energy)
             self.analysis.waveform.disconnect(visual.on_waveform)
+        elif isinstance(visual, CrawlerVisualizer):
+            self.analysis.energy.disconnect(visual.on_energy)
         visual.removeEventFilter(self)
         visual.close()
         visual.deleteLater()
@@ -1002,6 +1005,7 @@ class MainWindow(QMainWindow):
         if self.visualizer is None:
             self.visualizer = (CirclerVisualizer(self) if effect == EFFECTS.index("Circler Tetra")
                                else FogShSVisualizer(self) if effect == EFFECTS.index("fog_shS")
+                               else CrawlerVisualizer(self) if effect == EFFECTS.index("Crawler")
                                else Visualizer(self) if effect == 0
                                else EffectVisualizer(effect, self))
             self.visualizer_effect = effect
@@ -1012,6 +1016,8 @@ class MainWindow(QMainWindow):
             elif isinstance(self.visualizer, FogShSVisualizer):
                 self.analysis.energy.connect(self.visualizer.on_energy)
                 self.analysis.waveform.connect(self.visualizer.on_waveform)
+            elif isinstance(self.visualizer, CrawlerVisualizer):
+                self.analysis.energy.connect(self.visualizer.on_energy)
             self.analysis.beat.connect(self.visualizer.on_beat)
             self.analysis.bands.connect(self.visualizer.on_bands)
             self.visualizer.failed.connect(self.visualizer_failed)

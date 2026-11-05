@@ -6,4 +6,4 @@ __pycache__/
 build
 build-win
 build-win-mingw
-build*
+build-linux

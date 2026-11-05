@@ -31,7 +31,7 @@ def make_themes():
 THEMES = make_themes()
 ORDERS = ("Manual / import order", "Title A–Z", "Title Z–A", "Folder / filename")
 EFFECTS = ("Chrome sphere", "PsyTunnel", "Hiss", "Matrixia",
-           "Orbit Streams", "Glyph Spin", "Glyph Trails", "Biolume", "Fireworks", "Circler Tetra", "fog_shS")
+           "Orbit Streams", "Glyph Spin", "Glyph Trails", "Biolume", "Fireworks", "Circler Tetra", "fog_shS", "Crawler")
 PLAYBACK = ("Normal", "Reversed", "Shuffle tracks", "Shuffle albums (folders)", "Random")
 DISPLAY = ("Oscilloscope", "Spectrum analyzer", "Combo (half + half)")
 GRADIENTS = (("Player theme", None), ("Black → White", ("#000000","#ffffff")),

@@ -1,202 +1,213 @@
-# MusiK
+# µsiK
 
-Qt-musiikkisoitin ja basson tahtiin reagoiva OpenGL-visualisointi.
-Purppuran ja oranssin liukuväri, oskilloskooppi, sumu, horisonttiin
-jatkuva shakkilautamaasto ja heijastava metallikuula.
+The idea for µsiK came from the DeadBeef player, whose playback controls were the
+same color as the background: black. I figured I could at least do that better.
+The project grew, an AI gremlin got its hands on it, and this is the result: a
+decent music player with a few rather good-looking visualizers included by default.
 
-## Käynnistys
+## Getting started
 
 ```bash
 uv sync
 uv run musik.py
-# Voit lisätä kappaleita myös komentoriviltä:
-uv run musik.py "/polku/kappale.mp3" "/polku/toinen.flac"
+# You can also add tracks from the command line:
+uv run musik.py "/path/to/track.mp3" "/path/to/another.flac"
 ```
 
-Python 3.14+, PySide6 / Qt 6.8+, NumPy ja ModernGL. Visualisointi vaatii
-OpenGL 3.3:n ja toimivan työpöytäistunnon. Qt:n FFmpeg-tausta hoitaa toiston
-sekä soivan äänen näytteet. Tuetut koodekit riippuvat Qt/FFmpeg-asennuksesta;
-tavallisia muotoja ovat MP3, FLAC, WAV, Ogg, Opus ja M4A.
+Requires Python 3.14+, PySide6 / Qt 6.8+, NumPy, and ModernGL. Visualization
+requires OpenGL 3.3 and a working desktop session. Qt's FFmpeg backend handles
+playback and provides samples of the playing audio. Supported codecs depend on
+the Qt/FFmpeg installation; common formats include MP3, FLAC, WAV, Ogg, Opus,
+and M4A.
 
-## Käyttö
+## Usage
 
-- **+ Add files** lisää useita kerralla valittuja kappaleita (Ctrl/Shift);
-  kaksoisnapsautus soittolistalla aloittaa toiston.
-- **Add folders** avaa usean hakemiston valinnan. Valitse puusta Ctrl/Shiftillä
-  useita kansioita ja paina Open, tai kerää eri sijainneista kansioita
-  **Add selected folders** -painikkeella. Kaikki alikansiot sisällytetään;
-  päällekkäisistä kansiovalinnoista ei lisätä samaa tiedostoa kahdesti. Haku toimii taustalla, joten toistoa voi
-  jatkaa. Haun aikana sama painike näyttää **Cancel scan**; keskeyttäminen
-  säilyttää jo lisätyt kappaleet. Hakemistolinkkejä ei seurata.
-  Kansiohaku ja tiedostovalitsin käyttävät samoja tiedostopäätteitä:
-  MP3, FLAC, WAV/WAVE, OGG/OGA, Opus, M4A/M4B, AAC, AIFF/AIF/AIFC ja WMA.
-- **Play / Pause** on yksi painike: toiston aikana se näyttää Pause ja tauolla
-  Play. Tauolta jatketaan samaa kappaletta samasta kohdasta.
-  **Stop / Next / Previous** ohjaavat pysäytystä ja kappaleenvaihtoa.
-  Previous palaa kappaleen alkuun, kun sitä on soitettu yli kolme sekuntia.
-  Kappaleen lopussa siirrytään seuraavaan; listan lopussa toisto pysähtyy.
-  Next/Previous-napeilla voi kiertää listan päästä toiseen.
-- **− Remove files** poistaa valitut kappaleet listalta. Ctrl/Shift valitsee
-  useita. Kappaleita voi järjestää vetämällä. Äänitiedostoja ei poisteta levyltä.
-- **Load playlist** korvaa listan M3U/M3U8-tiedoston sisällöllä;
-  **Save playlist** tallentaa UTF-8-soittolistan suhteellisilla tiedostopoluilla.
-  Puuttuvat tiedostot ja verkkolinkit ohitetaan ilmoituksen kanssa.
-- **Oskilloskoopin napsautus** vaihtaa spektrianalysaattoriin; uusi napsautus
-  palauttaa oskilloskoopin. Spektrissä on 48 logaritmisesti jaettua taajuuskaistaa
-  (30 Hz–20 kHz, näytteenottotaajuuden rajoissa) ja −72–0 dB:n asteikko.
-- Aikajana siirtää toistokohtaa, Volume säätää äänenvoimakkuutta.
-- **Visualization** avaa visualisoinnin omaan ikkunaan. Sen sulkeminen ei
-  keskeytä musiikkia. Pääikkunan sulkeminen lopettaa myös visualisoinnin.
+- **+ Add files** adds multiple selected tracks at once (Ctrl/Shift).
+  Double-click a track in the playlist to start playback.
+- **Add folders** opens a dialog for selecting multiple directories. Select
+  several folders in the tree with Ctrl/Shift and click Open, or collect folders
+  from different locations with **Add selected folders**. All subfolders are
+  included; overlapping folder selections do not add the same file twice.
+  Scanning runs in the background, so playback can continue. During a scan, the
+  same button shows **Cancel scan**; canceling keeps tracks already added.
+  Directory symlinks are not followed. Folder scanning and the file picker
+  support the same extensions: MP3, FLAC, WAV/WAVE, OGG/OGA, Opus, M4A/M4B,
+  AAC, AIFF/AIF/AIFC, and WMA.
+- **Play / Pause** is one button: it shows Pause during playback and Play when
+  paused. Resuming continues the same track from the same position.
+  **Stop / Next / Previous** stop playback or change tracks. Previous returns
+  to the start of the current track if it has played for more than three
+  seconds. Playback advances at the end of a track and stops at the end of the
+  playlist. The Next/Previous buttons wrap around the playlist.
+- **− Remove files** removes selected tracks from the playlist. Use Ctrl/Shift
+  to select multiple tracks. Drag tracks to reorder them. Audio files are not
+  deleted from disk.
+- **Load playlist** replaces the playlist with the contents of an M3U/M3U8
+  file; **Save playlist** writes a UTF-8 playlist with relative file paths.
+  Missing files and web links are skipped with a notification.
+- **Click the oscilloscope** to switch to the spectrum analyzer; click again to
+  return to the oscilloscope. The spectrum has 48 logarithmically spaced
+  frequency bands (30 Hz–20 kHz, subject to the sample rate) and a −72–0 dB
+  scale.
+- Use the timeline to seek and Volume to adjust the sound level.
+- **Visualization** opens the visualizer in a separate window. Closing it does
+  not interrupt the music. Closing the main window also closes the visualizer.
 
-| Näppäin | Toiminto |
+# Chrome Sphere visualization
+
+| Key | Action |
 | --- | --- |
-| Space (soitinikkunassa) | Toisto / tauko |
-| Ctrl+O | Lisää tiedostoja |
-| Delete (soittolistassa) | Poista valitut listalta |
-| F11 (visualisoinnissa) | Koko näyttö / ikkuna |
-| Esc (visualisoinnissa) | Pois koko näytöstä / sulje ikkuna |
-| ↑ / ↓ | Sumun tiheys |
-| ← / → | Sumun liikkeen nopeus |
-| R | Palauta sumun oletusasetukset |
+| Space (in the player window) | Play / pause |
+| Ctrl+O | Add files |
+| Delete (in the playlist) | Remove selected tracks from the list |
+| F11 (in the visualizer) | Toggle fullscreen |
+| Esc (in the visualizer) | Exit fullscreen / close the window |
+| ↑ / ↓ | Fog density |
+| ← / → | Fog movement speed |
+| R | Restore default fog settings |
 
-Bassontunnistus mittaa 35–180 Hz:n energiaa 2048 näytteen FFT-ikkunalla.
-Mukautuva kynnys, energian nousu ja 220 ms:n vähimmäisväli erottavat iskuja
-jatkuvasta bassosta. Stereokanavien tehot yhdistetään, joten vastakkaisvaiheinen
-basso ei kumoudu. Tunnistus on heuristinen eikä takaa jokaisen iskun tunnistusta.
-Kuula suurenee iskuista ja tausta välähtää satunnaisella värillä. Oskilloskooppi
-näyttää voimakkaamman äänikanavan. Analyysi seuraa soittimen dekoodaamia
-äänipuskureita; äänilaitteen puskurointi voi aiheuttaa pienen ajoituseron.
+Bass detection measures energy at 35–180 Hz using a 2048-sample FFT window.
+An adaptive threshold, rising energy, and a minimum interval of 220 ms help
+distinguish beats from sustained bass. The power of the stereo channels is
+combined, so out-of-phase bass does not cancel out. Detection is heuristic
+and cannot guarantee every beat is found. The sphere grows on beats, and the
+background flashes a random color. The oscilloscope displays the stronger
+audio channel. Analysis follows audio buffers decoded by the player; buffering
+in the audio device can cause a small timing difference.
 
-Kuulan pinta reagoi lisäksi jatkuvasti keskiääniin (180–2500 Hz) ja
-ylä-ääniin (2500–16000 Hz, äänitiedoston näytteenottotaajuuden rajoissa).
-Keskiäänet synnyttävät laajempaa aaltoilua ja ylä-äänet ulospäin työntyviä,
-teräviä piikkejä. Piikit nousevat kaarevasti ja pehmeällä juurella suoraan pallon pinnasta.
-Niiden enimmäispituus on 1,35 kertaa pallon perussäde.
-Piikkien korkeus seuraa ylä-äänien voimakkuutta logaritmisesti, ja ne
-vetäytyvät äänen vaimentuessa. Muodonmuutos vaikuttaa sekä siluettiin että
-metallin heijastuksiin.
-Pehmeä voimakkuuden skaalaus tuo esiin myös hiljaisempia soittimia;
-nopea nousu ja hitaampi vaimeneminen tasoittavat liikettä.
-Hiljaisuus vaimentaa värinän ja tauko tai pysäytys nollaa sen.
+The sphere's surface also responds continuously to midrange frequencies
+(180–2500 Hz) and high frequencies (2500–16000 Hz, subject to the audio file's
+sample rate). Midrange sounds create broader ripples, while high frequencies
+produce sharp, outward-pointing spikes. The spikes rise in a curve with soft
+bases directly from the sphere's surface. Their maximum length is 1.35 times
+the sphere's base radius. Spike height follows high-frequency intensity
+logarithmically, and the spikes recede as the sound fades. The deformation
+affects both the silhouette and the metal reflections. Gentle level scaling
+also reveals quieter instruments; a fast attack and slower decay smooth out
+the motion. Silence dampens the movement, and pausing or stopping resets it.
 
-Sumun kohina ja domain warp -kerrokset on sovitettu projektista
-`/home/shs/Code/Fog/fog.py`. Shaderit ovat tämän projektin `shaders/`-hakemistossa;
-alkuperäistä Fog-projektia ei tarvita käynnistyksessä.
+The fog noise and domain warp layers were adapted from
+`/home/shs/Code/Fog/fog.py`. The shaders are in this project's `shaders/`
+directory; the original Fog project is not needed at runtime.
 
-## Settings ja visualisaatiot
+## Settings and visualizations
 
-**Settings** tallentaa asetukset käyttäjäkohtaisesti (Windowsissa QSettingsin
-MusiK/MusiK-rekisteriasetuksiin). OK ottaa muutokset käyttöön heti; Cancel
-säilyttää entiset asetukset. Asetukset palautuvat käynnistettäessä.
+**Settings** saves preferences per user (in the QSettings MusiK/MusiK registry
+settings on Windows). OK applies changes immediately; Cancel keeps the
+previous settings. Saved settings are restored at startup.
 
-- Oskilloskoopin tiheys: 64–2048 pistettä, käytettävissä olevien ääninäytteiden
-  ja näyttötarkkuuden rajoissa.
-- Spektrin tiheys: 16–128 logaritmista FFT-palkkia. Suuri palkkimäärä ei lisää
-  FFT-ikkunan todellista taajuuserottelua matalilla taajuuksilla.
-- Soittolistan järjestys: tuonti/oma järjestys, nimi A–Z, nimi Z–A,
-  kansio/tiedostonimi tai sekoitettu. Oma järjestys sallii raahaamisen;
-  siihen palaaminen palauttaa tuontijärjestyksen. Sekoitettu järjestys säilyy
-  vakaana tuonnin aikana. Järjestyksen vaihtaminen ei katkaise soivaa kappaletta.
-- 20 pysyvää gradienttiteemaa: alkuperäinen MusiK ja 19 kiinteällä satunnaissiemenellä
-  luotua palettia. Värit pysyvät samoina käynnistyksestä toiseen.
-- Visualisaatio: Chrome sphere, PsyTunnel, Hiss tai Matrixia. Vaihto päivittää
-  myös avoimen visualisaatioikkunan ja säilyttää koko näytön tilan.
+- Oscilloscope density: 64–2048 points, subject to the available audio samples
+  and display resolution.
+- Spectrum density: 16–128 logarithmic FFT bars. A larger number of bars does
+  not improve the FFT window's actual frequency resolution at low frequencies.
+- Playlist order: import/custom order, name A–Z, name Z–A, folder/filename, or
+  shuffled. Custom order allows dragging; returning to it restores the import
+  order. Shuffled order remains stable while importing. Changing the order
+  does not interrupt the playing track.
+- 20 persistent gradient themes: the original MusiK theme and 19 palettes
+  generated with fixed random seeds. Their colors remain the same across
+  launches.
+- Visualization: Chrome Sphere, PsyTunnel, Hiss, or Matrixia. Switching also
+  updates an open visualizer window and preserves its fullscreen state.
 
-**PsyTunnel** käyttää alkuperäisen Psytunnel-projektin tunnelishaderia.
-Äänen energia ja taajuuskaistat kiihdyttävät etenemistä, suvantokohdat hidastavat
-sitä ja voimakkaasta hiljaiseen siirtyminen voi käynnistää lyhyen peruutuksen.
-Bassoisku synnyttää valkoisen, pehmeästi häipyvän välähdyksen.
+**PsyTunnel** uses the tunnel shader from the original Psytunnel project.
+Audio energy and frequency bands speed up movement through the tunnel, quiet
+passages slow it down, and a transition from loud to quiet can trigger a brief
+reverse movement. A bass beat produces a white flash that fades smoothly.
 
-**Hiss** käyttää alkuperäisen hiss-projektin valkoista kuutiota ja
-kaksivaiheista taittoefektiä ilman HUDia. Musiikki muuttaa pyörimisen ja
-virtauksen nopeutta, vääristymää sekä RGB-hajontaa; hiljaiset kohdat rauhoittavat
-liikettä.
+**Hiss** uses the white cube and two-stage refraction effect from the original
+hiss project, without its HUD. Music changes the speed of rotation and flow,
+distortion, and RGB dispersion; quiet passages calm the motion.
 
-**Matrixia** sovittaa alkuperäisen merkkisateen Qt:lle ilman Pygame-riippuvuutta
-ja toast/HUD-tekstejä. Sateen nopeus seuraa kokonaisenergiaa, bassoiskuja,
-keskiääniä ja ylä-ääniä. Napsautus kiertää seitsemän värin välillä.
+**Matrixia** adapts the original character rain to Qt without a Pygame
+dependency or toast/HUD text. The rain speed follows overall energy, bass
+beats, midrange, and high frequencies. Click to cycle through seven colors.
 
-Efektit toimitetaan MusiKin mukana, joten alkuperäisten projektien ei tarvitse
-olla asennettuina. Lähteet: sisarprojektit `Psytunnel/tunnel.frag`,
-`hiss/shaders/scene.frag`, `hiss/shaders/hiss.frag` ja `Matrixia/matrixia.py`.
-Niiden MIT-lisenssi on mukana tiedostossa `licenses/effects-MIT.txt`.
+The effects are bundled with MusiK, so the original projects do not need to
+be installed. Sources: sibling projects `Psytunnel/tunnel.frag`,
+`hiss/shaders/scene.frag`, `hiss/shaders/hiss.frag`, and `Matrixia/matrixia.py`.
+Their MIT license is included in `licenses/effects-MIT.txt`.
 
-## Lasers-visualisaatiot
+## Lasers visualizations
 
-Settings → Visualization sisältää myös viisi Lasers-projektista sovitettua
-visualisaatiota ilman HUD-tekstejä:
+Settings → Visualization also includes three visualizations adapted from the
+Lasers project, without HUD text:
 
-| MusiKin nimi | Alkuperäinen tiedosto | Ilme |
+| MusiK name | Original file | Appearance |
 | --- | --- | --- |
-| Laser Nexus | `laser_convergence.py` | Pisteet kohti laukaisuhetken kohdetta |
-| Orbit Streams | `laser_convergence_v2.py` | Pistevirrat seuraavat liikkuvaa kohdetta |
-| Glyph Waves | `laser_convergence_v4.py` | Aaltoilevasti kääntyvät fonttimerkit |
-| Glyph Spin | `laser_convergence_v4_2.py` | Merkkien jatkuva täysi pyörintä |
-| Glyph Trails | `laser_convergence_v4_3.py` | Pyörivät merkit ja häipyvät jäljet |
+| Orbit Streams | `laser_convergence_v2.py` | Streams of points follow a moving target |
+| Glyph Spin | `laser_convergence_v4_2.py` | Characters rotate continuously through full turns |
+| Glyph Trails | `laser_convergence_v4_3.py` | Rotating characters leave fading trails |
 
-**Laser pattern changes** valitsee 4 tai 8 tahdin vaihtovälin. Tahtiarvio olettaa
-4/4-tahtilajin ja arvioi neljäsosanuotin pituuden bassoiskujen väleistä.
-Jakso käynnistyy ensimmäisistä tunnistetuista iskuista; tämä ei ole kappaleen
-ensimmäisen tahdin tai tahtilajin varma tunnistus. Synkopointi ja puoli-/tuplatempo
-voivat vaikuttaa arvioon. Ääninäytteiden kello ohjaa vaihtoja, joten ikkunan
-piirtonopeus ei muuta tahtimäärää. Pitkä hiljaisuus pysäyttää tahtiarvion.
+**Laser pattern changes** selects a 4- or 8-bar interval between changes.
+The beat estimate assumes a 4/4 time signature and estimates the quarter-note
+duration from intervals between bass beats. The cycle starts with the first
+detected beats; this does not reliably identify the track's first bar or its
+time signature. Syncopation and half or double tempo can affect the estimate.
+The audio sample clock controls changes, so the window's frame rate does not
+affect the bar count. Prolonged silence pauses the beat estimate.
 
-Jaksojen rajoilla muuttuvat säteiden määrä, pyörimisnopeus/suunta ja väri sekä
-merkkiversioissa merkkimäärä, koko ja merkki. Nopeus ja väri siirtyvät pehmeästi.
-Lisäksi kokonaisvoimakkuus, keskiäänet ja ylä-äänet ohjaavat liikettä jatkuvasti.
-Bassoiskut lisäävät valkoisen, eksponentiaalisesti häipyvän kick-välähdyksen,
-jota ei tallenneta efektin jälkikuvaan. Tauko, pysäytys ja haku nollaavat
-ääni- ja tahtianalyysin. Asetus säilyy seuraavaan käynnistykseen.
+At cycle boundaries, the number of beams, rotation speed and direction, and
+color change; glyph variants also change the number, size, and choice of
+characters. Speed and color transition smoothly. Overall volume, midrange,
+and high frequencies also drive continuous movement. Bass beats add a white
+kick flash that fades exponentially and is not retained in the effect's
+afterimage. Pausing, stopping, and seeking reset the audio and beat analysis.
+The setting persists across launches.
 
-Sovitukset ovat MusiKin sisällä eivätkä tarvitse Pygamea tai erillistä
-Lasers-hakemistoa. Alkuperäinen MIT-lisenssi: `licenses/lasers-MIT.txt`.
+The adaptations are included in MusiK and do not require Pygame or a separate
+Lasers directory. The original MIT license is in `licenses/lasers-MIT.txt`.
 
-## Kappaleen metatiedot ja Party Mode
+## Track metadata and Party Mode
 
-Pidä hiirtä soittolistan kappaleen päällä **2 sekuntia**, niin metatietoikkuna
-avautuu. Se näyttää tiedoston saatavilla olevat tiedot, esimerkiksi nimen,
-esittäjän, albumin, raidan numeron, genren, vuoden, keston ja bittinopeuden.
-Tietojen saatavuus riippuu tiedoston tageista ja Qt/FFmpeg-tuesta.
-Lukeminen ei vaihda soivaa kappaletta eikä keskeytä toistoa.
+Right-click a track and select Track information to open its metadata view.
+It shows available file details such as title, artist, album, track number,
+genre, year, duration, and bit rate. Availability depends on the file's tags
+and Qt/FFmpeg support. Reading the information does not change the playing
+track or interrupt playback.
 
-Kansikuva etsitään samasta hakemistosta: ensisijaisesti kappaleen niminen kuva,
-`cover`, `folder`, `front`, `albumart`, `album` tai `artwork` (JPG, PNG, WebP,
-BMP); myös muut hakemiston kuvat kelpaavat. Jos hakemistosta ei löydy kuvaa,
-käytetään saatavilla olevaa upotettua kansikuvaa. Kuvahaku ei käytä verkkoa.
-Sulje ikkuna **Escillä** tai oikean yläkulman **×**-painikkeella. Sama kappale
-ei avaa ikkunaa heti uudelleen; siirrä kohdistin ensin pois kappaleelta.
-Selaus, raahaaminen ja riviltä poistuminen peruuttavat odottavan avauksen.
+Cover art is sought in the same directory, prioritizing an image named after
+the track, then `cover`, `folder`, `front`, `albumart`, `album`, or `artwork`
+(JPG, PNG, WebP, BMP); other images in the directory are also accepted. If
+none is found there, available embedded cover art is used. The search does
+not use the network. Close the window with **Esc** or the **×** button in the
+upper-right corner. The same track will not open the window again immediately;
+first move the pointer away from the track. Scrolling, dragging, or leaving
+the row cancels a pending opening.
 
-**Party Mode** on **Start visualization** -painikkeen yläpuolella. Se käynnistää
-visualisoinnin ja kiertää kaikkia yhdeksää efektiä **15 sekunnin välein**.
-Uusi painallus pysäyttää kierron ja jättää nykyisen efektin näkyviin.
-Visualisaatioikkunan sulkeminen lopettaa myös Party Moden. Koko näytön tila
-ja ikkunan koko säilyvät vaihdoissa. Asetus- tai metatietoikkunan ollessa auki
-vaihtoja odotetaan, jotta kierto ei häiritse ikkunan käyttöä.
-Settingsistä valittu yksittäinen visualisaatio säilyy oletusvalintana;
-Party Mode ei tallenna kiertäviä efektejä sen päälle.
+**Party Mode** is above the **Start visualization** button. It starts the
+visualizer and cycles through all nine effects **every 15 seconds**. Pressing
+it again stops the cycle and leaves the current effect visible. Closing the
+visualizer window also stops Party Mode. Fullscreen state and window size are
+preserved between changes. While the Settings or metadata window is open,
+changes wait so the cycle does not interfere with using the window. The
+individual visualization selected in Settings remains the default; Party
+Mode does not save the cycling effects over it.
 
-## Tarkistukset
+## Checks
 
 ```bash
 uv run python -m unittest tests.test_core -v
-# Asetukset, monivalinta ja efektien renderöinti (työpöytäistunto):
+# Settings, multiple selection, and effect rendering (desktop session):
 uv run python -m unittest tests.test_settings_effects tests.test_lasers tests.test_metadata_party -v
-# Työpöydällä; luo testiaallon, pitää äänen mykistettynä ja avaa testin ajaksi ikkunat:
+# On a desktop; generates a test waveform, keeps audio muted, and opens windows for the test:
 uv run python -m tests.smoke_desktop
 ```
 
-Qt:n äänipuskurirajapinta:
+Qt's audio buffer interface:
 [QAudioBufferOutput](https://doc.qt.io/QT-6/qaudiobufferoutput.html).
 
 ## Circler Tetra
 
-The Python visualizer includes **Circler Tetra** (Settings → Visualization).
-Tetrahedra spiral/grow as in the original Circler; bass triggers a radial
-jump and restrained white flash. New neon colors arrive after every 16
-detected hits; the background cycles deep blue → yellow → red. See
-`CIRCLER-TETRA.md` for testing and parameters.
+**Circler Tetra** (Settings → Visualization).
+Rotating tetrahedra grow as they spiral forward. Bass makes the tetrahedra
+jump and triggers a white flash.
+`CIRCLER-TETRA.md`
 
 ## fog_shS visualization
 
-The new **fog_shS** effect follows Circler Tetra in Settings → Visualization. See [FOG-SHS.md](FOG-SHS.md) for audio-driven 3D contour behavior, rendering requirements, and testing instructions.
+**fog_shS** [FOG-SHS.md](FOG-SHS.md) Rotating shS text that vibrates with the music.
+
+# Crawler visualization
+
+Press **h** to show its keyboard shortcuts in the HUD.

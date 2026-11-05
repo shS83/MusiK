@@ -46,6 +46,7 @@
 #include <QMenu>
 #include <QMediaMetaData>
 #include <QDirIterator>
+#include <QSet>
 #include <QProgressBar>
 #include <QFrame>
 #include <QGroupBox>
@@ -74,6 +75,8 @@
 #include <QFontDatabase>
 #include <QScreen>
 #include <cstdio>
+#include <QElapsedTimer>
+#include <QDebug>
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1046,8 +1049,19 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
         QObject::connect(seek,&QSlider::sliderReleased,this,[this]{route->flush();player->setPosition(seek->value());});
         QObject::connect(volume,&QSlider::valueChanged,this,[this](int n){output->setVolume(n/100.f);});
         QObject::connect(mute,&QPushButton::toggled,this,[this,updateMuteIcon](bool on){output->setMuted(on);updateMuteIcon(on);});
-        QObject::connect(add,&QPushButton::clicked,this,[this]{for(auto p:QFileDialog::getOpenFileNames(this,"Add audio",QString(),"Audio (*.mp3 *.flac *.wav *.ogg *.m4a *.opus *.aac);;All (*.*)"))addFile(p);});
-        QObject::connect(addFolders,&QPushButton::clicked,this,[this]{auto folder=QFileDialog::getExistingDirectory(this,"Add music folder (including subfolders)");if(folder.isEmpty())return;QDirIterator files(folder,{"*.mp3","*.flac","*.wav","*.ogg","*.m4a","*.opus","*.aac"},QDir::Files,QDirIterator::Subdirectories);int count=0;while(files.hasNext()){addFile(files.next());++count;}status->setText(QString("Added %1 audio files from folder").arg(count));});
+        QObject::connect(add,&QPushButton::clicked,this,[this]{
+            addFiles(QFileDialog::getOpenFileNames(this,"Add audio",QString(),"Audio (*.mp3 *.flac *.wav *.ogg *.m4a *.opus *.aac);;All (*.*)"));
+        });
+        QObject::connect(addFolders,&QPushButton::clicked,this,[this]{
+            auto folder=QFileDialog::getExistingDirectory(this,"Add music folder (including subfolders)");
+            if(folder.isEmpty())return;
+            QDirIterator files(folder,{"*.mp3","*.flac","*.wav","*.ogg","*.m4a","*.opus","*.aac"},QDir::Files,QDirIterator::Subdirectories);
+            QStringList paths;
+            while(files.hasNext())paths.append(files.next());
+            const int before=list->count();
+            addFiles(paths);
+            status->setText(QString("Added %1 audio files from folder").arg(list->count()-before));
+        });
         QObject::connect(remove,&QPushButton::clicked,this,[this]{qDeleteAll(list->selectedItems());refreshNumbers();});
         QObject::connect(save,&QPushButton::clicked,this,[this]{auto p=QFileDialog::getSaveFileName(this,"Save playlist","MusiK.m3u8","Playlist (*.m3u8)");if(!p.isEmpty())saveList(p);});
         QObject::connect(load,&QPushButton::clicked,this,[this]{auto p=QFileDialog::getOpenFileName(this,"Load playlist",QString(),"Playlist (*.m3u8 *.m3u)");if(!p.isEmpty())loadList(p);});
@@ -1143,8 +1157,16 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             if(sortSelection==3)return a.first.compare(b.first,Qt::CaseInsensitive)<0;
             auto cmp=a.second.compare(b.second,Qt::CaseInsensitive);return sortSelection==2?cmp>0:cmp<0;
         });
-        list->clear();for(const auto &v:tracks)addFile(v.first);refreshNumbers();
-        for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==playing){list->setCurrentRow(i);break;}
+        QStringList paths;
+        paths.reserve(tracks.size());
+        for(const auto &track:tracks)paths.append(track.first);
+        list->setUpdatesEnabled(false);
+        list->clear();
+        addFiles(paths);
+        for(int i=0;i<list->count();++i){
+            if(list->item(i)->data(Qt::UserRole).toString()==playing){list->setCurrentRow(i);break;}
+        }
+        list->setUpdatesEnabled(true);
     }
     int nextTrackIndex(int direction=1){
         QStringList paths;
@@ -1191,9 +1213,69 @@ QSlider::groove:horizontal{height:5px;background:#69455b;}QSlider::handle:horizo
             [&](const QString &term){return path.contains(term);});
         item->setHidden(!matches);
     }
-    void addFile(QString path){QFileInfo f(path);if(!f.isFile())return;for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==f.absoluteFilePath())return;auto *item=new QListWidgetItem(f.completeBaseName(),list);item->setData(Qt::UserRole,f.absoluteFilePath());item->setData(Qt::UserRole+1,f.completeBaseName());item->setToolTip(f.absoluteFilePath());filterTrack(item);refreshNumbers();}
-    void refreshNumbers(){for(int n=0;n<list->count();++n){auto *item=list->item(n);QString text=item->data(Qt::UserRole+1).toString();bool playing=player && player->source().isLocalFile() && QFileInfo(player->source().toLocalFile()).absoluteFilePath()==item->data(Qt::UserRole).toString();item->setText(QString("%1    %2  %3").arg(n+1,3).arg(playing?"▶":" ").arg(text));}}
-    void loadList(const QString &path){QFile f(path);if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return;QDir dir=QFileInfo(path).dir();while(!f.atEnd()){QString p=QString::fromUtf8(f.readLine()).trimmed();if(p.isEmpty()||p.startsWith('#')||p.contains("://"))continue;addFile(dir.absoluteFilePath(p));}}
+    // Used for individual files (e.g. dropping a file on the command line).
+    void addFile(const QString &path){addFiles(QStringList{path});}
+
+    // Bulk insertion: one duplicate-index pass, one view refresh and one renumber.
+    // Previously addFile() scanned all existing tracks AND renumbered the entire
+    // list after each insert. Loading N tracks was O(N^2) (or worse with painting).
+    void addFiles(const QStringList &paths){
+        if(paths.isEmpty())return;
+        QSet<QString> known;
+        known.reserve(list->count()+paths.size());
+        for(int i=0;i<list->count();++i)
+            known.insert(list->item(i)->data(Qt::UserRole).toString());
+
+        const bool updatesWereEnabled=list->updatesEnabled();
+        list->setUpdatesEnabled(false);
+        int added=0;
+        for(const QString &path:paths){
+            QFileInfo file(path);
+            if(!file.isFile())continue;
+            const QString absolute=file.absoluteFilePath();
+            if(known.contains(absolute))continue;
+            known.insert(absolute);
+            auto *item=new QListWidgetItem(file.completeBaseName(),list);
+            item->setData(Qt::UserRole,absolute);
+            item->setData(Qt::UserRole+1,file.completeBaseName());
+            item->setToolTip(absolute);
+            if(!searchTerms.isEmpty())filterTrack(item);
+            ++added;
+        }
+        if(added)refreshNumbers();
+        list->setUpdatesEnabled(updatesWereEnabled);
+    }
+
+    void refreshNumbers(){
+        // Resolve the playing file once, not separately for every list item.
+        const QString playing=(player && player->source().isLocalFile())
+            ? QFileInfo(player->source().toLocalFile()).absoluteFilePath() : QString();
+        for(int n=0;n<list->count();++n){
+            auto *item=list->item(n);
+            const QString title=item->data(Qt::UserRole+1).toString();
+            const bool isPlaying=!playing.isEmpty() && playing==item->data(Qt::UserRole).toString();
+            item->setText(QString("%1    %2  %3").arg(n+1,3).arg(isPlaying?"▶":" ").arg(title));
+        }
+    }
+
+    void loadList(const QString &path){
+        QElapsedTimer timer;
+        timer.start();
+        QFile file(path);
+        if(!file.open(QIODevice::ReadOnly|QIODevice::Text))return;
+        const QDir dir=QFileInfo(path).dir();
+        QStringList paths;
+        while(!file.atEnd()){
+            const QString entry=QString::fromUtf8(file.readLine()).trimmed();
+            if(entry.isEmpty()||entry.startsWith('#')||entry.contains("://"))continue;
+            paths.append(dir.absoluteFilePath(entry));
+        }
+        const qint64 readMs=timer.elapsed();
+        const int previousCount=list->count();
+        addFiles(paths);
+        qInfo() << "[MusiK] Playlist read:" << readMs << "ms, inserted:"
+                << timer.elapsed()-readMs << "ms, entries:" << list->count()-previousCount;
+    }
     void saveList(const QString &path){QFile f(path);if(!f.open(QIODevice::WriteOnly|QIODevice::Text))return;f.write("#EXTM3U\n");QDir dir=QFileInfo(path).dir();for(int i=0;i<list->count();i++)f.write((dir.relativeFilePath(list->item(i)->data(Qt::UserRole).toString())+"\n").toUtf8());}
     void playRow(int i){if(i<0||i>=list->count())return;
         const auto path=list->item(i)->data(Qt::UserRole).toString();
@@ -1260,9 +1342,46 @@ private:
     QStringList shufflePaths,history;
     int shuffleMode=-1,historyIndex=-1;
 };
-int main(int argc,char **argv){
-    QSurfaceFormat fmt;fmt.setVersion(3,3);fmt.setProfile(QSurfaceFormat::CoreProfile);fmt.setSwapInterval(1);QSurfaceFormat::setDefaultFormat(fmt);
-    QApplication app(argc,argv);app.setApplicationName("MusiKCpp");app.setApplicationDisplayName("μSIK");app.setOrganizationName("MusiK");
-    QIcon icon(QCoreApplication::applicationDirPath()+"/MusiK-logo.png");app.setWindowIcon(icon);
-    PlayerWindow window;window.setWindowIcon(icon);for(int i=1;i<argc;i++)window.addFile(QString::fromLocal8Bit(argv[i]));window.show();return app.exec();
+int main(int argc, char **argv) {
+    QElapsedTimer startup;
+    startup.start();
+
+    QSurfaceFormat fmt;
+    fmt.setVersion(3, 3);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setSwapInterval(1);
+    QSurfaceFormat::setDefaultFormat(fmt);
+
+    QApplication app(argc, argv);
+    app.setApplicationName("MusiKCpp");
+    app.setApplicationDisplayName("μSIK");
+    app.setOrganizationName("MusiK");
+
+    QIcon icon(QCoreApplication::applicationDirPath() + "/MusiK-logo.png");
+    app.setWindowIcon(icon);
+
+    qInfo() << "[MusiK] Qt initialized:"
+            << startup.elapsed() << "ms";
+
+    PlayerWindow window;
+
+    qInfo() << "[MusiK] Window constructed:"
+            << startup.elapsed() << "ms";
+
+    window.setWindowIcon(icon);
+
+    QStringList commandLineFiles;
+    for (int i = 1; i < argc; i++)
+        commandLineFiles.append(QString::fromLocal8Bit(argv[i]));
+    window.addFiles(commandLineFiles);
+
+    qInfo() << "[MusiK] Files added:"
+            << startup.elapsed() << "ms";
+
+    window.show();
+
+    qInfo() << "[MusiK] Window shown:"
+            << startup.elapsed() << "ms";
+
+    return app.exec();
 }

@@ -82,6 +82,39 @@ static void testSearch(PlayerWindow &window,const QString &root){
     search->clear();
     require(!list->item(0)->isHidden() && !list->item(1)->isHidden(),"clear search");
 }
+static void testBulkPlaylist(PlayerWindow &window,const QString &root){
+    // Regression: importing many entries must not repeatedly renumber/re-scan
+    // the complete playlist. Also check that duplicate paths are ignored.
+    auto *list=window.findChild<QListWidget*>("playlist");
+    list->clear();
+    const QString folder=root+"/bulk-playlist";
+    require(QDir().mkpath(folder),"create bulk-playlist fixture directory");
+    const QString m3u=folder+"/bulk.m3u8";
+    QFile playlist(m3u);
+    require(playlist.open(QIODevice::WriteOnly|QIODevice::Text),"create bulk playlist");
+    playlist.write("#EXTM3U\n");
+    constexpr int tracks=512;
+    for(int i=0;i<tracks;++i){
+        const QString name=QString("track-%1.flac").arg(i,4,10,QChar('0'));
+        QFile audio(folder+"/"+name);
+        require(audio.open(QIODevice::WriteOnly),"create bulk fixture track");
+        audio.write("x");
+        audio.close();
+        playlist.write((name+"\n").toUtf8());
+    }
+    playlist.write("track-0000.flac\n"); // duplicate
+    playlist.write("missing.flac\n");    // nonexistent
+    playlist.close();
+
+    window.loadList(m3u);
+    require(list->count()==tracks,"bulk playlist count");
+    require(list->item(0)->text().contains("track-0000"),"bulk playlist first item");
+    require(list->item(tracks-1)->text().contains("track-0511"),"bulk playlist last item");
+    window.loadList(m3u);
+    require(list->count()==tracks,"duplicate import remains idempotent");
+    list->clear();
+}
+
 static void testTrackInformation(PlayerWindow &window,const QString &file){
     auto *list=window.findChild<QListWidget*>("playlist");
     list->clear();
@@ -147,7 +180,7 @@ int main(int argc,char **argv){
     for(int mode:{2,3,4}){
         prefs.setValue("order",mode);prefs.sync();
         auto window=std::make_unique<PlayerWindow>();
-        if(mode==2){testTrackInformation(*window,paths[0]);testAudioTab(*window);testSearch(*window,tmp.path());}
+        if(mode==2){testTrackInformation(*window,paths[0]);testAudioTab(*window);testSearch(*window,tmp.path());testBulkPlaylist(*window,tmp.path());}
         auto *list=window->findChild<QListWidget*>("playlist");list->clear();
         require(window->findChild<QLabel*>("brand")->text()=="μSIK","brand");
         for(const auto &p:paths)window->addFile(p);

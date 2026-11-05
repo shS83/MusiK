@@ -2,6 +2,7 @@ import os
 import random
 from pathlib import Path
 import sys
+from time import perf_counter
 
 # AudioBufferOutput requires Qt's FFmpeg backend.
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
@@ -298,11 +299,20 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            start = perf_counter()
+
             tracks, missing = load_playlist(str(filename))
+
+            parsed = perf_counter()
 
             self.add_paths(tracks, report_missing=False)
 
-            print(f"[MusiK] Restored {len(tracks)} tracks from {filename}")
+            loaded = perf_counter()
+
+            print(f"[MusiK] Playlist parsing: {parsed - start:.3f}s")
+            print(f"[MusiK] Qt population:    {loaded - parsed:.3f}s")
+            print(f"[MusiK] Total:            {loaded - start:.3f}s")
+            print(f"[MusiK] Tracks:           {len(tracks)}")
 
             if missing:
                 print(f"[MusiK] {len(missing)} missing files skipped")

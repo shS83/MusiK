@@ -3,6 +3,7 @@
 #include "circler_scene.h"
 #include "fog_scene.h"
 #include "crawler_scene.h"
+#include "attractor_pack_scene.h"
 #include "seek_slider.h"
 #include <QToolTip>
 #include <QApplication>
@@ -249,17 +250,23 @@ class Visual : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core {
     struct Comet { QVector2D origin, velocity; QColor color; float start, scale; };
 public:
     explicit Visual(QWidget *p=nullptr):QOpenGLWidget(p),rng(1731) {
-        setWindowFlag(Qt::Window,true); resize(1280,720);
+        setWindowFlag(Qt::Window,true); resize(1280,720);setMouseTracking(true);
         timer.setTimerType(Qt::PreciseTimer);timer.setInterval(6); QObject::connect(&timer,&QTimer::timeout,this,[this]{update();});
         clock.start(); last=clock.elapsed();
     }
+    ~Visual() override {
+        if(context()){
+            QObject::disconnect(context(),nullptr,this,nullptr);
+            makeCurrent();attractorPack.release();doneCurrent();
+        }
+    }
     static int laserVariant(int value){return value==4?1:(value==5?3:4);}
-    void setEffect(int value) { if(effect!=value && value==9)circler.reset(); if(effect!=value && value==10)fog.reset(); if(effect!=value && value==11)crawler.reset(); effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); cleanup(); update(); }
-    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks","Circler Tetra","fog_shS","Crawler"};}
-    void setSound(SoundState s){ sound=s; }
+    void setEffect(int value) { cleanup(); if(effect!=value && value==9)circler.reset(); if(effect!=value && value==10)fog.reset(); if(effect!=value && value==11)crawler.reset(); if(effect!=value && value==12)attractorPack=AttractorPackScene(); effect=value; if(effect>=4 && effect<=6){laser=std::make_unique<LaserScene>(laserVariant(effect));laser->setPartyMode(partyMode);laser->setPaletteBeats(paletteBeats);} setWindowTitle(QString("μSIK · %1 · F11 fullscreen · Esc close").arg(names().value(effect))); update(); }
+    static QStringList names(){return {"Chrome sphere","PsyTunnel","Hiss","Matrixia","Orbit Streams","Glyph Spin","Glyph Trails","Biolume","Fireworks","Circler Tetra","fog_shS","Crawler","AttractorPack"};}
+    void setSound(SoundState s){ sound=s; soundAt=clock.elapsed(); }
     void setWaveform(const QVector<float> &samples){fog.setWaveform(samples);}
     void changeLaserPhrase(){if(laser)laser->phrase();}
-    void beat(){if(laser)laser->onBeat();if(effect==9)circler.beat();if(effect==10)fog.beat();if(effect==11)crawler.beat();}
+    void beat(){if(laser)laser->onBeat();if(effect==9)circler.beat();if(effect==10)fog.beat();if(effect==11)crawler.beat();if(effect==12)attractorPack.beat();}
     void setPartyMode(bool enabled){partyMode=enabled;if(laser)laser->setPartyMode(enabled);}
     void setPaletteBeats(int beats){paletteBeats=beats;if(laser)laser->setPaletteBeats(beats);}
 protected:
@@ -288,7 +295,7 @@ protected:
         }
     }
 #endif
-    void showEvent(QShowEvent *e) override {QOpenGLWidget::showEvent(e);timer.start();}
+    void showEvent(QShowEvent *e) override {last=clock.elapsed();QOpenGLWidget::showEvent(e);timer.start();}
     void hideEvent(QHideEvent *e) override {timer.stop();QOpenGLWidget::hideEvent(e);}
     void toggleBorderless(){
 #ifdef Q_OS_WIN
@@ -361,6 +368,8 @@ protected:
         QTimer::singleShot(250, this, [this](){ printDisplayMode(borderless ? "after borderless" : "after restore"); });
     }
     void keyPressEvent(QKeyEvent *e) override {
+        if(effect==12 && attractorPack.key(e->key())){update();e->accept();return;}
+        if(effect==12 && e->key()==Qt::Key_F){toggleBorderless();e->accept();return;}
         if(effect==11 && crawler.key(e->key())){update();e->accept();return;}
         if(effect==8 && (e->key()==Qt::Key_section || e->text()==QStringLiteral("§"))){
             fireworksDebug=!fireworksDebug;
@@ -378,9 +387,16 @@ protected:
         if(e->key()==Qt::Key_Escape){if(borderless)toggleBorderless();else close();e->accept();return;}
         QOpenGLWidget::keyPressEvent(e);
     }
-    void mousePressEvent(QMouseEvent *e) override {if(effect==3){color=(color+1)%7;glyphCache.clear();update();}QOpenGLWidget::mousePressEvent(e);}
-    void initializeGL() override {initializeOpenGLFunctions();glGenVertexArrays(1,&vao);glBindVertexArray(vao);glDisable(GL_DEPTH_TEST);}
-    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();program.reset();cube.reset();circler.release();fog.release();crawler.release();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
+    void mouseMoveEvent(QMouseEvent *e) override {
+        if(effect==12)attractorPack.setPointer({e->position().x()/std::max(1,width())-.5,e->position().y()/std::max(1,height())-.5});
+        QOpenGLWidget::mouseMoveEvent(e);
+    }
+    void leaveEvent(QEvent *e) override {attractorPack.setPointer({});QOpenGLWidget::leaveEvent(e);}
+    void mousePressEvent(QMouseEvent *e) override {if(effect==12 && e->button()==Qt::LeftButton)attractorPack.burst();if(effect==3){color=(color+1)%7;glyphCache.clear();update();}QOpenGLWidget::mousePressEvent(e);}
+    void initializeGL() override {
+        QObject::connect(context(),&QOpenGLContext::aboutToBeDestroyed,this,[this]{makeCurrent();attractorPack.release();doneCurrent();});
+        initializeOpenGLFunctions();glGenVertexArrays(1,&vao);glBindVertexArray(vao);glDisable(GL_DEPTH_TEST);}
+    void cleanup() {if(!context()){program.reset();cube.reset();return;}makeCurrent();attractorPack.release();program.reset();cube.reset();circler.release();fog.release();crawler.release();if(texture){glDeleteTextures(1,&texture);texture=0;}if(fbo){glDeleteFramebuffers(1,&fbo);fbo=0;}doneCurrent();}
     static QByteArray read(const QString &name){QFile f(QCoreApplication::applicationDirPath()+"/shaders/"+name);if(!f.open(QIODevice::ReadOnly))return {};return f.readAll();}
     std::unique_ptr<QOpenGLShaderProgram> shader(const QString &frag){
         auto p=std::make_unique<QOpenGLShaderProgram>();auto vert=read("scene.vert"),fs=read(frag);
@@ -966,11 +982,20 @@ protected:
         glBindVertexArray(0);fireProgram->release();glDisable(GL_BLEND);
     }
     void paintGL() override {
-        auto now=clock.elapsed();float dt=std::clamp(float(now-last)*.001f,0.f,.1f);last=now;
+        auto now=clock.elapsed();const double elapsed=std::max(0.,double(now-last)*.001);float dt=std::clamp(float(elapsed),0.f,.1f);last=now;
         energy+=(sound.energy-energy)*(1-std::exp(-dt/.22f));
         float target=.06f+4.8f*energy+1.2f*sound.mid+.6f*sound.treble+2*sound.pulse;
         speed+=(target-speed)*(1-std::exp(-dt/.25f));travel+=speed*dt;
         phase+=dt*(.025f+1.8f*energy+.5f*sound.mid+.35f*sound.treble);
+        if(effect==12){
+            const float fade=std::exp(-std::max(0.f,float(now-soundAt)*.001f-.12f)*6);
+            const int w=std::max(1,qRound(width()*devicePixelRatioF())),h=std::max(1,qRound(height()*devicePixelRatioF()));
+            if(!attractorPack.paint(elapsed,w,h,defaultFramebufferObject(),sound.energy*fade,sound.mid*fade,sound.treble*fade)){
+                QPainter p(this);p.fillRect(rect(),Qt::black);p.setPen(Qt::white);
+                p.drawText(rect(),Qt::AlignCenter|Qt::TextWordWrap,attractorPack.gpuError());timer.stop();
+            }else if(attractorPack.hudVisible()){QPainter p(this);attractorPack.paintHud(p);}
+            return;
+        }
         if(effect==3){matrix(dt);return;}
         if(effect==7)updateBiolume(dt);
         if(effect==8){updateFireworks(dt);paintFireworks();return;}
@@ -1066,6 +1091,7 @@ private:
 #endif
     SoundState sound;int effect=0,color=1;float energy=0,speed=0,travel=0,phase=0,kickEnvelope=0;int frames=0;float fpsSeconds=0;bool partyMode=false;int paletteBeats=16;
     std::unique_ptr<QOpenGLShaderProgram> program,cube;GLuint texture=0,fbo=0,vao=0;int fw=0,fh=0;QString error;
+    AttractorPackScene attractorPack; qint64 soundAt=-100000;
     CirclerScene circler;FogScene fog;CrawlerScene crawler;std::unique_ptr<LaserScene> laser;std::mt19937 rng;std::vector<Stream> streams;std::vector<std::vector<QPixmap>> glyphCache;double pixelRatio=0;
 };
 

@@ -211,3 +211,33 @@ jump and triggers a white flash.
 # Crawler visualization
 
 Press **h** to show its keyboard shortcuts in the HUD.
+
+## AttractorPack visualization
+
+**AttractorPack** replaces the former Clifford entry in both Python and C++;
+existing saved Clifford selections now open the pack. It includes **Clifford,
+De Jong, Lorenz and Aizawa**, adapted from `~/Code/Attractor/attractorpack.py`.
+All four use 250,000 points, accumulating density, logarithmic cosine palettes
+and glow; Lorenz and Aizawa have rotating 3D projections with depth shading.
+
+The **HUD starts hidden**; **H** shows/hides it. **Automatic switching starts on**
+and selects the next attractor every **15 seconds**. **T** toggles it; **N** moves
+forward, and **1–4** select directly. Manual selection and toggling the timer
+start a fresh 15-second slot. The timer measures visible elapsed time independently
+of rendering speed, audio playback and the drift pause; hiding the window pauses it.
+
+MusiK's music analysis drives zoom, brightness, parameters, rotation and palette
+movement, with a kick on beats. **A** enables/disables this response. No microphone,
+`sounddevice` or synthetic demo beat is needed. C++ uses the player's existing
+amplitude-derived band estimates; Python uses FFT analysis.
+
+Move the mouse to bend 2D shapes or rotate/tilt 3D views; click for a point burst.
+**R** randomizes the shape or 3D angle, **C** changes palette, **Space** freezes
+automatic parameter drift/rotation (music and the switch timer continue).
+**S** saves a PNG without the HUD as `attractorpack_<timestamp>.png` in the current
+working directory. **F/F11** toggles borderless fullscreen; **Esc** restores/closes.
+Density rendering is capped at 1100×800 while preserving the window aspect ratio.
+
+Tests: `uv run python -m unittest tests.test_attractor_pack -v` (desktop/Qt backend
+required for the UI test), and `ctest --test-dir CPP/build --output-on-failure`
+when C++ is built with `-DMUSIK_BUILD_TESTS=ON`.

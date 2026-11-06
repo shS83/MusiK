@@ -6,6 +6,12 @@ Based on the supplied `musik.zip` (30 October 2026).
 
 ## Included
 
+- Music-reactive **AttractorPack** (Clifford, De Jong, Lorenz, Aizawa), replacing
+  the Clifford selector entry. Ported from `~/Code/Attractor/attractorpack.py`.
+  HUD starts hidden (**H**); 15-second automatic switching starts enabled (**T**).
+  **N** next, **1–4** select, **A** audio, **C** palette, **R** shape/angle,
+  **Space** drift, mouse movement bends/rotates, click bursts, **S** screenshot,
+  **F/F11** fullscreen. See the root README for details and audio differences.
 - Native Qt6 Widgets player shell, playlist loading/saving (M3U8), autoplay next, volume, audio decoding.
 - Qt Multimedia decoded audio-buffer callback with a **simple amplitude envelope** as a placeholder. Original Python FFT beat/mid/treble analyzer is **not ported yet**.
 - Native Qt OpenGL widget and the **original, unmodified GLSL shader files** for Chrome sphere, PsyTunnel and Hiss, including Hiss two-pass FBO.
